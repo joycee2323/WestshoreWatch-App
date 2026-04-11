@@ -6,7 +6,12 @@ async function getToken(): Promise<string | null> {
   return SecureStore.getItemAsync('auth_token');
 }
 
-async function request(method: string, path: string, body?: any) {
+async function request(
+  method: string,
+  path: string,
+  body?: any,
+  extraHeaders?: Record<string, string>,
+) {
   const token = await getToken();
   const url = `${BASE}${path}`;
   const res = await fetch(url, {
@@ -14,6 +19,7 @@ async function request(method: string, path: string, body?: any) {
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(extraHeaders || {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -44,6 +50,13 @@ export const api = {
     request('PATCH', `/deployments/nodes/${nodeId}/assign`, { deployment_id: deploymentId }),
   unassignNode: (nodeId: string) =>
     request('PATCH', `/deployments/nodes/${nodeId}/assign`, { deployment_id: null }),
+  nodeHeartbeat: (apiKey: string, location: { lat: number; lon: number }) =>
+    request(
+      'POST',
+      '/nodes/heartbeat',
+      { lat: location.lat, lon: location.lon, connection_type: 'ble_relay' },
+      { 'X-Node-Api-Key': apiKey },
+    ),
 
   // Detections
   getDetections: (deploymentId: string) =>

@@ -11,6 +11,8 @@ import { OP_STATUS_AIRBORNE } from '../services/odidParser';
 import { startBleScanning, stopBleScanning } from '../services/bleScanner';
 import * as Location from 'expo-location';
 
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
 export default function LiveMapScreen() {
   const colors = useTheme();
   const { backendDrones, updateBackendDrone, bleDrones, updateBleDrone, nearbyNodes } = useDroneStore();
@@ -24,8 +26,38 @@ export default function LiveMapScreen() {
   const cameraRef = useRef<MapboxGL.Camera>(null);
   const timeouts = useRef<Record<string, any>>({});
 
+  // Per-node heartbeat timers keyed by MAC, plus latest api key per MAC
+  // so the interval callback always uses the freshest value.
+  const heartbeatTimers = useRef<Map<string, any>>(new Map());
+  const nodeApiKeys = useRef<Map<string, string>>(new Map());
+
   const allDrones = { ...bleDrones, ...backendDrones };
   const droneList = Object.values(allDrones);
+
+  const sendHeartbeat = useCallback(async (apiKey: string) => {
+    try {
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      await api.nodeHeartbeat(apiKey, {
+        lat: pos.coords.latitude,
+        lon: pos.coords.longitude,
+      });
+    } catch (err) {
+      console.warn('nodeHeartbeat failed:', err);
+    }
+  }, []);
+
+  const ensureHeartbeat = useCallback((mac: string, apiKey: string) => {
+    nodeApiKeys.current.set(mac, apiKey);
+    if (heartbeatTimers.current.has(mac)) return;
+    sendHeartbeat(apiKey);
+    const timer = setInterval(() => {
+      const key = nodeApiKeys.current.get(mac);
+      if (key) sendHeartbeat(key);
+    }, HEARTBEAT_INTERVAL_MS);
+    heartbeatTimers.current.set(mac, timer);
+  }, [sendHeartbeat]);
 
   useEffect(() => {
     setMode('backend');
@@ -33,12 +65,18 @@ export default function LiveMapScreen() {
       loadActiveDeployment();
       startBleScanning(
         det => updateBleDrone(det.mac, det),
-        (mac, rssi) => updateNearbyNode(mac, rssi)
+        (mac, rssi, apiKey) => {
+          updateNearbyNode(mac, rssi);
+          if (apiKey) ensureHeartbeat(mac, apiKey);
+        }
       );
     });
     return () => {
       wsRef.current?.close();
       stopBleScanning();
+      heartbeatTimers.current.forEach(t => clearInterval(t));
+      heartbeatTimers.current.clear();
+      nodeApiKeys.current.clear();
     };
   }, []);
 
