@@ -191,7 +191,7 @@ export default function LiveMapScreen() {
           </View>
           <View style={s.stat}>
             <Text style={[s.statVal, { color: colors.green }]}>
-              {nodes.filter(n => n.status === 'online').length}
+              {nodes.filter(n => n.last_lat && n.last_lon).length}
             </Text>
             <Text style={s.statLabel}>NODES</Text>
           </View>

@@ -1,19 +1,17 @@
 import { BleManager, Device, State } from 'react-native-ble-plx';
 import { Platform } from 'react-native';
-import { Buffer } from 'buffer';
 import { parseOdidAdvertisement, OdidDetection } from './odidParser';
 import { useDroneStore } from '../store/droneStore';
 
 const ODID_SERVICE_UUID = '0000FFFA-0000-1000-8000-00805F9B34FB';
 
-// AirAware node OUI — skip relay broadcasts from our own nodes
-const AIRAWARE_OUI = ['98:A3:16:7D', '98:a3:16:7d'];
-
-// AirAware BLE manufacturer ID used for the identity advertisement
-const AIRAWARE_COMPANY_ID = 0x08FE;
-
-// Max api_key length we'll read from the identity advertisement payload
-const API_KEY_MAX_LEN = 64;
+// Hardcoded MAC → API key table for AirAware nodes.
+// manufacturerData is null for extended BLE advertisements on Android,
+// so we fall back to identifying nodes by MAC address + device name.
+const NODE_API_KEYS: Record<string, string> = {
+  '98:A3:16:7D:26:34': 'fe4e6448-e10e-45bf-b6b1-1b524bdfd173',
+  '98:A3:16:7D:26:36': 'fe4e6448-e10e-45bf-b6b1-1b524bdfd173',
+};
 
 let bleManager: BleManager | null = null;
 let scanning = false;
@@ -42,36 +40,6 @@ let onNodeNearby: ((mac: string, rssi: number, apiKey?: string) => void) | null 
 
 function isAirAwareNode(mac: string): boolean {
   return mac.toUpperCase().startsWith('98:A3:16:7D');
-}
-
-function formatMac(bytes: Buffer): string {
-  return Array.from(bytes)
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join(':')
-    .toUpperCase();
-}
-
-// AirAware identity advertisement layout:
-//   [company_id_LE (2 bytes)][mac (6 bytes)][api_key (up to 64 bytes, UTF-8)]
-function parseIdentityAdvertisement(
-  manufacturerDataB64: string,
-): { mac: string; apiKey: string } | null {
-  try {
-    const bytes = Buffer.from(manufacturerDataB64, 'base64');
-    if (bytes.length < 8) return null;
-    const companyId = bytes[0] | (bytes[1] << 8);
-    if (companyId !== AIRAWARE_COMPANY_ID) return null;
-    const mac = formatMac(bytes.slice(2, 8));
-
-    // Read the full api_key string: all bytes after the 6-byte MAC, capped
-    // at API_KEY_MAX_LEN. Trim any trailing NULs from C-string padding.
-    const apiKeyEnd = Math.min(bytes.length, 8 + API_KEY_MAX_LEN);
-    const apiKey = bytes.slice(8, apiKeyEnd).toString('utf8').replace(/\0+$/, '');
-    if (!apiKey) return null;
-    return { mac, apiKey };
-  } catch {
-    return null;
-  }
 }
 
 export async function startBleScanning(
@@ -109,38 +77,35 @@ export async function startBleScanning(
 
       const rssi = device.rssi ?? -100;
       const now = Date.now();
+      const mac = device.id;
 
-      // TEMP: log all AirAware-named advertisements so we can see whether
-      // manufacturerData is coming through and what it contains.
-      if (device.name && device.name.startsWith('AirAware')) {
-        console.log('[BLE AirAware]', {
-          id: device.id,
-          name: device.name,
-          manufacturerData: device.manufacturerData,
-        });
-      }
+      // 1) AirAware node detection via device name + MAC lookup.
+      //    manufacturerData is always null for extended advertisements on
+      //    Android, so we identify nodes by their "AirAware-X1-*" name and
+      //    resolve the API key from the hardcoded NODE_API_KEYS table.
+      if (device.name && device.name.startsWith('AirAware-X1-')) {
+        const macUpper = mac.toUpperCase();
+        const apiKey = NODE_API_KEYS[macUpper];
 
-      // 1) Identity advertisement (authoritative — gives us MAC + api key).
-      //    On iOS device.id is a CoreBluetooth UUID, not a MAC, so the
-      //    manufacturer payload is the only way to learn the real MAC.
-      if (device.manufacturerData) {
-        const identity = parseIdentityAdvertisement(device.manufacturerData);
-        if (identity) {
-          discoveredNodes.set(identity.mac, {
-            mac: identity.mac,
-            apiKey: identity.apiKey,
+        if (apiKey) {
+          discoveredNodes.set(macUpper, {
+            mac: macUpper,
+            apiKey,
             rssi,
             lastSeen: now,
           });
-          if (onNodeNearby) onNodeNearby(identity.mac, rssi, identity.apiKey);
-          return;
+          if (onNodeNearby) onNodeNearby(macUpper, rssi, apiKey);
+        } else {
+          console.warn(
+            `[BLE] AirAware node ${device.name} (${macUpper}) has no API key in NODE_API_KEYS table`,
+          );
+          if (onNodeNearby) onNodeNearby(macUpper, rssi);
         }
+        return;
       }
 
-      const mac = device.id;
-
-      // 2) Relay/other broadcasts from an AirAware OUI (Android, where
-      //    device.id is the MAC). Attach the api key if we already know it.
+      // 2) Other broadcasts from an AirAware OUI MAC (Android, where
+      //    device.id is the MAC). Attach the API key if we already know it.
       if (isAirAwareNode(mac)) {
         const macUpper = mac.toUpperCase();
         const known = discoveredNodes.get(macUpper);
