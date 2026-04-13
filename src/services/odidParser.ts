@@ -35,8 +35,8 @@ function readUInt16LE(buf: Uint8Array, offset: number): number {
 }
 
 function parseBasicId(msg: Uint8Array): Partial<OdidDetection> {
-  // Bytes 1-20: UAS ID (null-terminated string or bytes)
-  const idBytes = msg.slice(1, 21);
+  // Byte 0: msg type, Byte 1: ID type + UA type, Bytes 2-21: 20-byte UAS ID
+  const idBytes = msg.slice(2, 22);
   let uasId = '';
   for (let i = 0; i < idBytes.length; i++) {
     if (idBytes[i] === 0) break;
@@ -47,18 +47,31 @@ function parseBasicId(msg: Uint8Array): Partial<OdidDetection> {
 
 function parseLocation(msg: Uint8Array): Partial<OdidDetection> {
   if (msg.length < 25) return {};
+
+  // Layout matches C6-Firmware ble_relay.c encode_location():
+  //   [0] msg type | [1] status/ew_seg | [2] dir_mod/speed_mult | [3] speed | [4] vert_speed
+  //   [5-8] lat | [9-12] lon | [13-14] alt_baro | [15-16] alt_geo | [17-18] height
   const status = (msg[1] >> 4) & 0x0F;
-  const latRaw = readInt32LE(msg, 4);
-  const lonRaw = readInt32LE(msg, 8);
-  const altGeoRaw = readUInt16LE(msg, 12);
-  const speedRaw = msg[20];
-  const headingRaw = readUInt16LE(msg, 16);
+  const ewSeg = msg[1] & 0x01;
+  const dirMod = (msg[2] >> 1) & 0x7F;
+  const speedMult = msg[2] & 0x01;
+  const speedRaw = msg[3];
+
+  const latRaw = readInt32LE(msg, 5);
+  const lonRaw = readInt32LE(msg, 9);
+  const altGeoRaw = readUInt16LE(msg, 15);
 
   const lat = latRaw / 1e7;
   const lon = lonRaw / 1e7;
   const altGeo = (altGeoRaw * 0.5) - 1000;
-  const speedHoriz = speedRaw * 0.25;
-  const heading = headingRaw * 0.01;
+  const speedHoriz = speedMult ? (speedRaw * 0.75 + 63.75) : (speedRaw * 0.25);
+  const heading = dirMod + (ewSeg * 180);
+
+  console.log('[ODID location]', {
+    b1: msg[1]?.toString(16), b2: msg[2]?.toString(16), b3: msg[3],
+    ewSeg, dirMod, speedMult, speedRaw,
+    heading, speedHoriz, lat, lon, altGeo,
+  });
 
   if (lat === 0 && lon === 0) return { hasLocation: false };
 
@@ -128,18 +141,38 @@ export function parseOdidAdvertisement(
   serviceData: string // hex string from react-native-ble-plx
 ): Partial<OdidDetection> | null {
   try {
-    // Decode base64 service data from ble-plx
-    const bytes = Buffer.from(serviceData, 'base64');
-    const data = new Uint8Array(bytes);
+    // Decode base64 service data from ble-plx (using atob for Hermes compatibility)
+    const binary = atob(serviceData);
+    const data = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      data[i] = binary.charCodeAt(i);
+    }
+
+    console.log('[ODID bytes]', {
+      len: data.length,
+      b0: data[0]?.toString(16),
+      b1: data[1]?.toString(16),
+      b2: data[2]?.toString(16),
+    });
 
     // BLE ODID layout: [app_code 0x0D][counter][25-byte message]
-    if (data.length < 27) return null;
-    if (data[0] !== ODID_APP_CODE) return null;
+    if (data.length < 27) {
+      console.log('[ODID reject] too short:', data.length);
+      return null;
+    }
+    if (data[0] !== ODID_APP_CODE) {
+      console.log('[ODID reject] bad app code:', data[0]?.toString(16), 'expected 0d');
+      return null;
+    }
 
     // Skip app code + counter
     const msg = data.slice(2);
-    return parseOdidMessage(msg);
-  } catch {
+    const msgType = (msg[0] >> 4) & 0x0F;
+    const result = parseOdidMessage(msg);
+    console.log('[ODID message]', { msgType, resultKeys: result ? Object.keys(result) : null });
+    return result;
+  } catch (e) {
+    console.log('[ODID error]', e);
     return null;
   }
 }

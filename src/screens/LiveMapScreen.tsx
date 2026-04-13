@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Platform, PermissionsAndroid,
+  View, Text, TextInput, StyleSheet, TouchableOpacity, Platform, PermissionsAndroid,
 } from 'react-native';
 import MapboxGL from '@rnmapbox/maps';
 import { useDroneStore } from '../store/droneStore';
@@ -8,7 +8,7 @@ import { useAuthStore } from '../store/authStore';
 import { createWebSocket, api } from '../services/api';
 import { useTheme, getDroneColor } from '../theme';
 import { OP_STATUS_AIRBORNE } from '../services/odidParser';
-import { startBleScanning, stopBleScanning } from '../services/bleScanner';
+import { startBackgroundScanning, stopBackgroundScanning } from '../services/bleScanner';
 import * as Location from 'expo-location';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -22,6 +22,8 @@ export default function LiveMapScreen() {
   const bleDrones = useDroneStore(s => s.bleDrones);
   const nearbyNodeCount = useDroneStore(s => Object.keys(s.nearbyNodes).length);
 
+  const [nicknames, setNicknames] = useState<Record<string, string>>({});
+
   // Actions are stable references — selecting them individually avoids
   // subscribing to unrelated state changes.
   const updateBackendDrone = useDroneStore(s => s.updateBackendDrone);
@@ -31,6 +33,9 @@ export default function LiveMapScreen() {
 
   const [activeDeployment, setActiveDeployment] = useState<any>(null);
   const [nodes, setNodes] = useState<any[]>([]);
+  const nodesRef = useRef<any[]>([]);
+  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+
   const [selectedDrone, setSelectedDrone] = useState<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const cameraRef = useRef<MapboxGL.Camera>(null);
@@ -73,7 +78,7 @@ export default function LiveMapScreen() {
     setMode('backend');
     requestPermissions().then(() => {
       loadActiveDeployment();
-      startBleScanning(
+      startBackgroundScanning(
         det => updateBleDrone(det.mac, det),
         (mac, rssi, apiKey) => {
           updateNearbyNode(mac, rssi);
@@ -83,11 +88,23 @@ export default function LiveMapScreen() {
     });
     return () => {
       wsRef.current?.close();
-      stopBleScanning();
+      stopBackgroundScanning();
       heartbeatTimers.current.forEach(t => clearInterval(t));
       heartbeatTimers.current.clear();
       nodeApiKeys.current.clear();
     };
+  }, []);
+
+  const setNickname = useCallback((uasId: string, name: string) => {
+    setNicknames(prev => {
+      const next = { ...prev };
+      if (name.trim()) {
+        next[uasId] = name.trim();
+      } else {
+        delete next[uasId];
+      }
+      return next;
+    });
   }, []);
 
   const requestPermissions = async () => {
@@ -163,26 +180,129 @@ export default function LiveMapScreen() {
           );
         })}
 
-        {/* Drone markers */}
+        {/* Drone flight path polylines */}
         {droneList.map((drone: any) => {
-          const lat = drone.lat ?? drone.last_lat;
-          const lon = drone.lon ?? drone.last_lon;
-          if (!lat || !lon) return null;
           const id = drone.mac || drone.uas_id;
+          const path = drone.path as { lat: number; lon: number }[] | undefined;
+          if (!path || path.length < 2) return null;
+          const coords = path.map(p => [p.lon, p.lat]);
           const color = getDroneColor(id);
           return (
-            <MapboxGL.PointAnnotation
-              key={id}
-              id={id}
-              coordinate={[lon, lat]}
-              onSelected={() => setSelectedDrone(drone)}
+            <MapboxGL.ShapeSource
+              key={`path-${id}`}
+              id={`path-${id}`}
+              shape={{ type: 'LineString', coordinates: coords }}
             >
-              <View style={[s.droneMarker, { borderColor: color, backgroundColor: color + '33' }]}>
-                <View style={[s.droneCore, { backgroundColor: color }]} />
-              </View>
-            </MapboxGL.PointAnnotation>
+              <MapboxGL.LineLayer
+                id={`line-${id}`}
+                style={{ lineColor: color, lineWidth: 2, lineOpacity: 0.6 }}
+              />
+            </MapboxGL.ShapeSource>
           );
         })}
+
+        {/* Drone markers via ShapeSource + SymbolLayer */}
+        <MapboxGL.ShapeSource
+          id="drone-markers"
+          shape={{
+            type: 'FeatureCollection',
+            features: droneList
+              .filter((d: any) => (d.lat ?? d.last_lat) && (d.lon ?? d.last_lon))
+              .map((d: any) => {
+                const id = d.mac || d.uas_id;
+                const hdg = d.heading ?? d.last_heading ?? 0;
+                console.log('[DroneFeature]', d.uasId || d.uas_id || id, { heading: d.heading, last_heading: d.last_heading, resolved: hdg });
+                return {
+                  type: 'Feature' as const,
+                  id,
+                  geometry: {
+                    type: 'Point' as const,
+                    coordinates: [d.lon ?? d.last_lon, d.lat ?? d.last_lat],
+                  },
+                  properties: {
+                    droneId: id,
+                    heading: hdg,
+                    color: getDroneColor(id),
+                    label: nicknames[d.uasId || d.uas_id] || d.uasId || d.uas_id || id.slice(-5),
+                  },
+                };
+              }),
+          }}
+          onPress={(e: any) => {
+            const feature = e.features?.[0];
+            if (!feature) return;
+            const droneId = feature.properties?.droneId;
+            const drone = droneList.find((d: any) => (d.mac || d.uas_id) === droneId);
+            if (drone) setSelectedDrone(drone);
+          }}
+        >
+          <MapboxGL.SymbolLayer
+            id="drone-icons"
+            style={{
+              textField: '⊕',
+              textSize: 30,
+              textColor: ['get', 'color'],
+              textHaloColor: ['get', 'color'],
+              textHaloWidth: 1,
+              textAllowOverlap: true,
+              textIgnorePlacement: true,
+              textFont: ['Arial Unicode MS Regular'],
+            }}
+          />
+          <MapboxGL.SymbolLayer
+            id="drone-labels"
+            style={{
+              textField: ['get', 'label'],
+              textSize: 10,
+              textColor: ['get', 'color'],
+              textOffset: [0, 1.8],
+              textAllowOverlap: true,
+              textFont: ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+            }}
+          />
+        </MapboxGL.ShapeSource>
+
+        {/* Pilot/operator location markers */}
+        <MapboxGL.ShapeSource
+          id="pilot-source"
+          shape={(() => {
+            const features = droneList
+              .filter((d: any) => {
+                const opLat = d.opLat ?? d.op_lat;
+                const opLon = d.opLon ?? d.op_lon;
+                return opLat && opLon && (opLat !== 0 || opLon !== 0);
+              })
+              .map((d: any) => {
+                const id = d.mac || d.uas_id;
+                return {
+                  type: 'Feature' as const,
+                  id: `pilot-${id}`,
+                  geometry: {
+                    type: 'Point' as const,
+                    coordinates: [d.opLon ?? d.op_lon, d.opLat ?? d.op_lat],
+                  },
+                  properties: {
+                    color: getDroneColor(id),
+                  },
+                };
+              });
+            console.log('[PilotFeatures]', JSON.stringify(features));
+            return { type: 'FeatureCollection' as const, features };
+          })()}
+        >
+          <MapboxGL.SymbolLayer
+            id="pilot-symbol"
+            style={{
+              textField: 'P',
+              textSize: 20,
+              textColor: '#FFD600',
+              textHaloColor: '#FFD600',
+              textHaloWidth: 1,
+              textAllowOverlap: true,
+              textIgnorePlacement: true,
+            }}
+          />
+        </MapboxGL.ShapeSource>
       </MapboxGL.MapView>
 
       {/* Deployment banner */}
@@ -203,7 +323,7 @@ export default function LiveMapScreen() {
           </View>
           <View style={s.stat}>
             <Text style={[s.statVal, { color: colors.green }]}>
-              {nodes.filter(n => n.last_lat && n.last_lon).length}
+              {nodes.filter(n => n.last_lat && n.last_lon && n.last_seen && (Date.now() - new Date(n.last_seen).getTime() < 120000)).length}
             </Text>
             <Text style={s.statLabel}>NODES</Text>
           </View>
@@ -211,29 +331,87 @@ export default function LiveMapScreen() {
       </View>
 
       {/* Selected drone sheet */}
-      {selectedDrone && (
-        <View style={s.detailSheet}>
-          <TouchableOpacity style={s.sheetClose} onPress={() => setSelectedDrone(null)}>
-            <Text style={s.sheetCloseText}>✕</Text>
-          </TouchableOpacity>
-          <Text style={s.detailId}>{selectedDrone.uas_id || selectedDrone.uasId || selectedDrone.mac}</Text>
-          <View style={s.detailGrid}>
-            {[
-              ['POSITION', selectedDrone.last_lat ? `${Number(selectedDrone.last_lat).toFixed(6)}, ${Number(selectedDrone.last_lon).toFixed(6)}` : '—'],
-              ['ALTITUDE', selectedDrone.last_altitude ? `${Math.round(selectedDrone.last_altitude * 3.28084)}ft MSL` : '—'],
-              ['SPEED', selectedDrone.last_speed ? `${(selectedDrone.last_speed * 2.237).toFixed(1)}mph` : '—'],
-              ['HEADING', selectedDrone.last_heading ? `${Math.round(selectedDrone.last_heading)}°` : '—'],
-              ['OPERATOR', selectedDrone.op_lat ? `${Number(selectedDrone.op_lat).toFixed(6)}, ${Number(selectedDrone.op_lon).toFixed(6)}` : '—'],
-              ['NODE', selectedDrone.node_name || '—'],
-            ].map(([label, value]) => (
-              <View key={label} style={s.detailRow}>
-                <Text style={s.detailLabel}>{label}</Text>
-                <Text style={s.detailValue}>{value}</Text>
+      {selectedDrone && (() => {
+        // Live lookup so the panel reflects real-time updates, not a stale snapshot
+        const selId = selectedDrone.mac || selectedDrone.uas_id;
+        const liveDrone = droneList.find((d: any) =>
+          (d.mac || d.uas_id) === selId
+        ) ?? selectedDrone;
+
+        // Normalize field names: BLE drones use camelCase, backend uses snake_case
+        const dLat = liveDrone.lat ?? liveDrone.last_lat;
+        const dLon = liveDrone.lon ?? liveDrone.last_lon;
+        const dAlt = liveDrone.altGeo ?? liveDrone.last_altitude;
+        const dSpeed = liveDrone.speedHoriz ?? liveDrone.last_speed;
+        const dOpLat = liveDrone.opLat ?? liveDrone.op_lat;
+        const dOpLon = liveDrone.opLon ?? liveDrone.op_lon;
+
+        // Look up source node by matching sourceApiKey against the nodes list.
+        // sourceApiKey comes from NODE_API_KEYS in bleScanner.ts (BLE MAC → api_key).
+        // Look up source node by deriving station MAC from BLE sourceMac.
+        // BLE MAC has last byte 2 higher than station MAC, and backend
+        // stores device_id as uppercase hex without colons (e.g. "98A3167D2634").
+        const srcMac = liveDrone.sourceMac;
+        const currentNodes = nodesRef.current;
+        let sourceNode: any = null;
+        if (srcMac) {
+          const stripped = srcMac.replace(/:/g, '').toUpperCase();
+          const lastByte = parseInt(stripped.slice(-2), 16) - 1;
+          if (lastByte >= 0) {
+            const stationDeviceId = stripped.slice(0, -2) + lastByte.toString(16).padStart(2, '0').toUpperCase();
+            sourceNode = currentNodes.find((n: any) =>
+              (n.device_id || '').toUpperCase() === stationDeviceId
+            );
+          }
+        }
+        const nodeName = sourceNode?.name || liveDrone.node_name || '—';
+
+        const uasId = liveDrone.uasId || liveDrone.uas_id || liveDrone.mac;
+        const nickname = nicknames[uasId] || '';
+
+        return (
+          <View style={s.detailSheet}>
+            <TouchableOpacity
+              style={s.sheetClose}
+              onPress={() => setSelectedDrone(null)}
+              hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
+              activeOpacity={0.6}
+            >
+              <Text style={s.sheetCloseText}>✕</Text>
+            </TouchableOpacity>
+            {nickname ? (
+              <View style={{ marginBottom: 4 }}>
+                <Text style={s.detailNickname}>{nickname}</Text>
+                <Text style={s.detailIdSmall}>{uasId}</Text>
               </View>
-            ))}
+            ) : (
+              <Text style={s.detailId}>{uasId}</Text>
+            )}
+            <TextInput
+              style={s.nicknameInput}
+              value={nickname}
+              onChangeText={(text) => setNickname(uasId, text)}
+              placeholder="Add nickname..."
+              placeholderTextColor={colors.textMuted}
+              maxLength={30}
+            />
+            <View style={s.detailGrid}>
+              {[
+                ['POSITION', dLat != null ? `${Number(dLat).toFixed(6)}, ${Number(dLon).toFixed(6)}` : '—'],
+                ['ALTITUDE', dAlt != null ? `${Math.round(dAlt * 3.28084)}ft MSL` : '—'],
+                ['SPEED', dSpeed != null ? `${(dSpeed * 2.237).toFixed(1)}mph` : '—'],
+                ['OPERATOR', dOpLat != null ? `${Number(dOpLat).toFixed(6)}, ${Number(dOpLon).toFixed(6)}` : '—'],
+                ['NODE', nodeName],
+              ].map(([label, value]) => (
+                <View key={label} style={s.detailRow}>
+                  <Text style={s.detailLabel}>{label}</Text>
+                  <Text style={s.detailValue}>{value}</Text>
+                </View>
+              ))}
+            </View>
           </View>
-        </View>
-      )}
+        );
+      })()}
     </View>
   );
 }
@@ -269,11 +447,6 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     backgroundColor: 'rgba(0,255,136,0.1)',
     alignItems: 'center', justifyContent: 'center',
   },
-  droneMarker: {
-    width: 28, height: 28, borderRadius: 14, borderWidth: 2,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  droneCore: { width: 8, height: 8, borderRadius: 4 },
   detailSheet: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     backgroundColor: 'rgba(17,24,39,0.97)',
@@ -281,10 +454,23 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     borderTopWidth: 1, borderColor: c.border,
     padding: 20, paddingBottom: Platform.OS === 'ios' ? 36 : 20,
   },
-  sheetClose: { position: 'absolute', right: 20, top: 20 },
-  sheetCloseText: { color: c.textMuted, fontSize: 16 },
+  sheetClose: { position: 'absolute', right: 16, top: 16, padding: 8 },
+  sheetCloseText: { color: c.textMuted, fontSize: 20, fontWeight: '700' },
+  detailNickname: {
+    color: c.cyan, fontSize: 18, fontWeight: '700',
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  detailIdSmall: {
+    color: c.textMuted, fontSize: 10, marginTop: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
   detailId: {
-    color: c.cyan, fontSize: 14, fontWeight: '600', marginBottom: 16,
+    color: c.cyan, fontSize: 14, fontWeight: '600', marginBottom: 4,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  nicknameInput: {
+    color: c.text, fontSize: 12, marginBottom: 12, paddingVertical: 6, paddingHorizontal: 8,
+    borderWidth: 1, borderColor: c.border, borderRadius: 6,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
   detailGrid: { gap: 2 },
