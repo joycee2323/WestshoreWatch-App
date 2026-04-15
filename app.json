@@ -59,9 +59,7 @@
         }
       ],
       "expo-secure-store",
-      "expo-location",
-      "./plugins/withAndroidxCore",
-      "./plugins/withForegroundServiceType"
+      "expo-location"
     ],
     "extra": {
       "eas": {

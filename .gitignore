@@ -1,1 +1,8 @@
 .claude/
+.expo/web/
+node_modules
+android/build/
+android/app/build/
+android/.gradle/
+android/app/.cxx/
+ble_log.txt

@@ -117,6 +117,12 @@ export default function LiveMapScreen() {
       ]);
       console.log('Bluetooth permissions:', JSON.stringify(bleResult));
     }
+    if (Platform.OS === 'android' && Platform.Version >= 33) {
+      const notifResult = await PermissionsAndroid.request(
+        'android.permission.POST_NOTIFICATIONS' as any,
+      );
+      console.log('Notification permission:', notifResult);
+    }
   };
 
   const loadActiveDeployment = async () => {
