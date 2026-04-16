@@ -7,7 +7,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
 import { useAuthStore } from '../store/authStore';
 
-const SHOP_URL = 'https://westshoredrone.com/products/airaware-x1';
+const X1_URL = 'https://westshoredrone.com/airaware-x1/';
+const M1_URL = 'https://westshoredrone.com/airaware-m1/';
 const DASHBOARD_URL = 'https://airaware.westshoredrone.com/nodes';
 
 interface Props {
@@ -58,12 +59,24 @@ export default function OnboardingScreen({ onRefresh, refreshing }: Props) {
           to your dashboard in real time.
         </Text>
 
+        <Text style={s.chooseLabel}>Choose your AirAware node:</Text>
+
         <TouchableOpacity
           style={s.primaryBtn}
-          onPress={() => Linking.openURL(SHOP_URL)}
+          onPress={() => Linking.openURL(X1_URL)}
           activeOpacity={0.8}
         >
           <Text style={s.primaryBtnText}>GET AIRAWARE X1</Text>
+          <Text style={s.primaryBtnPrice}>$799</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={s.secondaryBtn}
+          onPress={() => Linking.openURL(M1_URL)}
+          activeOpacity={0.8}
+        >
+          <Text style={s.secondaryBtnText}>GET AIRAWARE M1</Text>
+          <Text style={s.secondaryBtnPrice}>$399</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -109,12 +122,37 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     color: c.textDim, fontSize: 13, lineHeight: 20,
     textAlign: 'center', marginBottom: 28,
   },
+  chooseLabel: {
+    color: c.textMuted, fontSize: 11, letterSpacing: 2, marginBottom: 12,
+    textAlign: 'center',
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
   primaryBtn: {
     backgroundColor: c.cyan, borderRadius: 8,
-    padding: 16, alignItems: 'center',
+    paddingVertical: 14, paddingHorizontal: 16, alignItems: 'center',
+    flexDirection: 'row', justifyContent: 'space-between',
   },
   primaryBtnText: {
     color: '#000', fontWeight: '700', fontSize: 13, letterSpacing: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  primaryBtnPrice: {
+    color: '#000', fontWeight: '700', fontSize: 13,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  secondaryBtn: {
+    marginTop: 10, borderRadius: 8,
+    paddingVertical: 14, paddingHorizontal: 16, alignItems: 'center',
+    flexDirection: 'row', justifyContent: 'space-between',
+    borderWidth: 1, borderColor: c.cyan,
+    backgroundColor: 'rgba(0,212,255,0.08)',
+  },
+  secondaryBtnText: {
+    color: c.cyan, fontWeight: '700', fontSize: 13, letterSpacing: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  secondaryBtnPrice: {
+    color: c.cyan, fontWeight: '700', fontSize: 13,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
   secondaryLink: {
