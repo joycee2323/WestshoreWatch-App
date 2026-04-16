@@ -6,3 +6,7 @@ android/app/build/
 android/.gradle/
 android/app/.cxx/
 ble_log.txt
+.env
+.env.local
+.vscode/
+.expo/devices.json

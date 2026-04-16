@@ -10,7 +10,7 @@ import { useTheme, getDroneColor } from '../theme';
 import * as Location from 'expo-location';
 import { OP_STATUS_AIRBORNE } from '../services/odidParser';
 
-MapboxGL.setAccessToken('pk.eyJ1Ijoid2VzdHNob3JlZHJvbmUiLCJhIjoiY21ucGhzcWpmMmo1MTJyb2tqamY4bjUzZSJ9.w4ZBUJm9PerX4KSXnH54SA');
+MapboxGL.setAccessToken(process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN ?? '');
 
 async function requestAllPermissions(): Promise<boolean> {
   // Location (required for BLE scanning on Android 12+)
@@ -30,8 +30,6 @@ async function requestAllPermissions(): Promise<boolean> {
 
   return true;
 }
-
-MapboxGL.setAccessToken('pk.eyJ1Ijoid2VzdHNob3JlZHJvbmUiLCJhIjoiY21ucGhzcWpmMmo1MTJyb2tqamY4bjUzZSJ9.w4ZBUJm9PerX4KSXnH54SA');
 
 export default function GuestScanScreen({ navigation }: any) {
   const colors = useTheme();
