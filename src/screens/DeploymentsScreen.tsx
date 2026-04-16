@@ -14,6 +14,12 @@ export default function DeploymentsScreen() {
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
   const [billing, setBilling] = useState<any>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -125,13 +131,22 @@ export default function DeploymentsScreen() {
       {active.length > 0 && (
         <>
           <Text style={s.sectionLabel}>ACTIVE ({active.length})</Text>
-          {active.map(dep => (
+          {active.map(dep => {
+            const expiryMs = getExpiryMs(dep);
+            const remaining = expiryMs !== null ? expiryMs - now : null;
+            const expired = remaining !== null && remaining <= 0;
+            return (
             <View key={dep.id} style={[s.card, s.activeCard]}>
               <View style={s.depHeader}>
                 <Text style={s.depName}>{dep.name}</Text>
                 <View style={s.activeBadge}><Text style={s.activeBadgeText}>● ACTIVE</Text></View>
               </View>
               <Text style={s.depMeta}>Started {new Date(dep.started_at).toLocaleString()}</Text>
+              {remaining !== null && (
+                <Text style={[s.countdown, expired && s.countdownExpired]}>
+                  {expired ? 'Expired' : formatRemaining(remaining)}
+                </Text>
+              )}
               <View style={s.depStats}>
                 <StatChip label="NODES" value={dep.node_count || 0} color={colors.cyan} />
                 <StatChip label="DRONES" value={dep.drone_count || 0} color={colors.text} />
@@ -148,7 +163,8 @@ export default function DeploymentsScreen() {
                 </TouchableOpacity>
               </View>
             </View>
-          ))}
+            );
+          })}
         </>
       )}
 
@@ -183,6 +199,29 @@ export default function DeploymentsScreen() {
       )}
     </ScrollView>
   );
+}
+
+function getExpiryMs(dep: any): number | null {
+  const raw = dep.expires_at ?? dep.ends_at ?? dep.expiry ?? null;
+  if (raw) {
+    const ms = new Date(raw).getTime();
+    if (Number.isFinite(ms)) return ms;
+  }
+  if (dep.started_at) {
+    const start = new Date(dep.started_at).getTime();
+    if (Number.isFinite(start)) return start + 24 * 60 * 60 * 1000;
+  }
+  return null;
+}
+
+function formatRemaining(ms: number): string {
+  const totalMinutes = Math.floor(ms / 60_000);
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `${days}d ${hours}h remaining`;
+  if (hours > 0) return `${hours}h ${minutes}m remaining`;
+  return `${minutes}m remaining`;
 }
 
 function StatChip({ label, value, color }: any) {
@@ -235,7 +274,12 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     color: c.text, fontSize: 13, fontWeight: '600', flex: 1,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
-  depMeta: { color: c.textMuted, fontSize: 10, marginBottom: 12 },
+  depMeta: { color: c.textMuted, fontSize: 10, marginBottom: 4 },
+  countdown: {
+    color: c.cyan, fontSize: 11, marginBottom: 12, letterSpacing: 1,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  countdownExpired: { color: c.red, fontWeight: '700' },
   activeBadge: {
     backgroundColor: 'rgba(0,255,136,0.1)', borderRadius: 10,
     paddingHorizontal: 8, paddingVertical: 3,

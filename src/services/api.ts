@@ -35,6 +35,10 @@ export const api = {
   // Auth
   login: (email: string, password: string) =>
     request('POST', '/auth/login', { email, password }),
+  register: (data: { name: string; email: string; org_name: string; password: string }) =>
+    request('POST', '/auth/register', data),
+  forgotPassword: (email: string) =>
+    request('POST', '/auth/forgot-password', { email }),
 
   // Deployments
   getDeployments: () => request('GET', '/deployments'),

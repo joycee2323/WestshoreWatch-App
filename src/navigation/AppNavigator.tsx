@@ -10,6 +10,8 @@ import { useTheme } from '../theme';
 
 import SettingsScreen from '../screens/SettingsScreen';
 import LoginScreen from '../screens/LoginScreen';
+import RegisterScreen from '../screens/RegisterScreen';
+import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
 import GuestScanScreen from '../screens/GuestScanScreen';
 import LiveMapScreen from '../screens/LiveMapScreen';
 import DeploymentsScreen from '../screens/DeploymentsScreen';
@@ -82,6 +84,8 @@ export default function AppNavigator() {
         ) : (
           <>
             <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="Register" component={RegisterScreen} />
+            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
             <Stack.Screen name="GuestScan" component={GuestScanScreen} />
           </>
         )}

@@ -75,6 +75,22 @@ export default function LoginScreen({ navigation }: any) {
               : <Text style={s.btnText}>SIGN IN</Text>
             }
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={s.forgotLink}
+            onPress={() => navigation.navigate('ForgotPassword')}
+          >
+            <Text style={s.forgotText}>Forgot password?</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={s.registerLink}
+            onPress={() => navigation.navigate('Register')}
+          >
+            <Text style={s.registerText}>
+              Don't have an account? <Text style={s.registerEmphasis}>Create account</Text>
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Guest mode */}
@@ -133,4 +149,9 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   },
   guestText: { color: c.textDim, fontSize: 13 },
   guestSub: { color: c.textMuted, fontSize: 11, marginTop: 4 },
+  forgotLink: { marginTop: 14, alignItems: 'center' },
+  forgotText: { color: c.cyan, fontSize: 13 },
+  registerLink: { marginTop: 14, alignItems: 'center' },
+  registerText: { color: c.textDim, fontSize: 13 },
+  registerEmphasis: { color: c.cyan, fontWeight: '600' },
 });
