@@ -1,8 +1,6 @@
 import { create } from 'zustand';
 import { OdidDetection } from '../services/odidParser';
 
-const DRONE_TIMEOUT_MS = 15000;
-
 export interface DroneEntry extends Partial<OdidDetection> {
   mac: string;
   rssi: number;
@@ -41,9 +39,7 @@ interface DroneStore {
   updateNearbyNode: (mac: string, rssi: number) => void;
 }
 
-const timeouts: Record<string, ReturnType<typeof setTimeout>> = {};
-
-export const useDroneStore = create<DroneStore>((set, get) => ({
+export const useDroneStore = create<DroneStore>((set) => ({
   bleDrones: {},
   backendDrones: {},
   mode: 'ble',
@@ -92,17 +88,9 @@ export const useDroneStore = create<DroneStore>((set, get) => ({
         bleDrones: { ...state.bleDrones, [mac]: merged },
       };
     });
-
-    // Reset timeout
-    if (timeouts[mac]) clearTimeout(timeouts[mac]);
-    timeouts[mac] = setTimeout(() => {
-      get().removeDrone(mac);
-    }, DRONE_TIMEOUT_MS);
   },
 
   removeDrone: (mac) => {
-    if (timeouts[mac]) clearTimeout(timeouts[mac]);
-    delete timeouts[mac];
     set(state => {
       const next = { ...state.bleDrones };
       delete next[mac];
@@ -110,11 +98,7 @@ export const useDroneStore = create<DroneStore>((set, get) => ({
     });
   },
 
-  clearBleDrones: () => {
-    Object.values(timeouts).forEach(clearTimeout);
-    Object.keys(timeouts).forEach(k => delete timeouts[k]);
-    set({ bleDrones: {} });
-  },
+  clearBleDrones: () => set({ bleDrones: {} }),
 
   setBackendDrones: (drones) => set({ backendDrones: drones }),
 
@@ -145,3 +129,16 @@ export const useDroneStore = create<DroneStore>((set, get) => ({
     }, 15000);
   },
 }));
+
+const DRONE_STALE_MS = 30000;
+const CLEANUP_INTERVAL_MS = 10000;
+
+setInterval(() => {
+  const now = Date.now();
+  const { bleDrones, removeDrone } = useDroneStore.getState();
+  for (const mac of Object.keys(bleDrones)) {
+    if (now - bleDrones[mac].lastSeen > DRONE_STALE_MS) {
+      removeDrone(mac);
+    }
+  }
+}, CLEANUP_INTERVAL_MS);
