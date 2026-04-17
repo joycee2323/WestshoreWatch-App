@@ -1,6 +1,6 @@
 import { NativeModules, NativeEventEmitter, Platform, EmitterSubscription } from 'react-native';
 import { parseOdidAdvertisement, OdidDetection } from './odidParser';
-import { uploadDetection } from './detectionUploader';
+import { queueDetection } from './detectionUploader';
 import { notifyNewDrone } from './droneNotifier';
 
 const { BLEScanner } = NativeModules as {
@@ -41,21 +41,11 @@ async function stopForegroundService(): Promise<void> {
   }
 }
 
-const NODE_API_KEYS: Record<string, string> = {
-  '98:A3:16:7D:26:34': 'fe4e6448-e10e-45bf-b6b1-1b524bdfd173',
-  '98:A3:16:7D:26:36': 'fe4e6448-e10e-45bf-b6b1-1b524bdfd173',
-  '98:A3:16:7D:26:62': '99c169eb52748d90e60c4c6765767282597077fc6514b627ba58b09439ce3acd',
-  '98:A3:16:7D:26:61': '99c169eb52748d90e60c4c6765767282597077fc6514b627ba58b09439ce3acd',
-  '38:44:BE:A5:78:EA': '68f4f41c7a4cb64a1ce64365b91bb679ea25c3c5d01521f3636992608fd2776e',
-  '38:44:BE:A5:79:46': '35695170236abaca973c419d5c3d60e42859c0eb2f587aa460e0e02f1303da37',
-};
-
 let scanning = false;
 let subscription: EmitterSubscription | null = null;
 
 export interface DiscoveredNode {
   mac: string;
-  apiKey: string;
   rssi: number;
   lastSeen: number;
 }
@@ -82,7 +72,7 @@ export function getDiscoveredNodes(): Map<string, DiscoveredNode> {
   return discoveredNodes;
 }
 
-let onNodeNearby: ((mac: string, rssi: number, apiKey?: string) => void) | null = null;
+let onNodeNearby: ((mac: string, rssi: number) => void) | null = null;
 
 function isAirAwareNode(mac: string): boolean {
   const upper = mac.toUpperCase();
@@ -90,8 +80,8 @@ function isAirAwareNode(mac: string): boolean {
 }
 
 export async function startBleScanning(
-  onDetection: (det: Partial<OdidDetection> & { mac: string; rssi: number }) => void,
-  onNearbyNode?: (mac: string, rssi: number, apiKey?: string) => void,
+  onDetection: (det: Partial<OdidDetection> & { mac: string; rssi: number; sourceMac?: string }) => void,
+  onNearbyNode?: (mac: string, rssi: number) => void,
 ): Promise<void> {
   if (scanning) return;
   if (Platform.OS !== 'android' || !BLEScanner) {
@@ -109,22 +99,12 @@ export async function startBleScanning(
 
     if (isAirAwareNode(mac)) {
       const macUpper = mac.toUpperCase();
-      const apiKey = NODE_API_KEYS[macUpper];
-
-      if (apiKey) {
-        discoveredNodes.set(macUpper, {
-          mac: macUpper,
-          apiKey,
-          rssi,
-          lastSeen: now,
-        });
-        if (onNodeNearby) onNodeNearby(macUpper, rssi, apiKey);
-      } else {
-        console.warn(
-          `[BLE] AirAware OUI device (${macUpper}) has no API key in NODE_API_KEYS table`,
-        );
-        if (onNodeNearby) onNodeNearby(macUpper, rssi);
-      }
+      discoveredNodes.set(macUpper, {
+        mac: macUpper,
+        rssi,
+        lastSeen: now,
+      });
+      if (onNodeNearby) onNodeNearby(macUpper, rssi);
     }
 
     const serviceDataMap = device.serviceData;
@@ -140,7 +120,6 @@ export async function startBleScanning(
     if (parsed.uasId === 'DroneScout Bridge') return;
 
     const sourceMacUpper = mac.toUpperCase();
-    const sourceApiKey = NODE_API_KEYS[sourceMacUpper];
 
     // Merge with prior parses from this source — BasicId, Location, and System
     // each only carry some of the fields.
@@ -169,20 +148,21 @@ export async function startBleScanning(
       rssi,
       lastSeen: now,
       sourceMac: sourceMacUpper,
-      sourceApiKey,
       ...parsed,
     });
 
-    // Upload when the merged state has both an id and a real location.
+    // Only queue uploads from AirAware-OUI sources. Drones broadcasting
+    // their own ODID directly aren't node-attributable, so the backend
+    // would 404 on /nodes/<droneMac>/detections.
     if (
-      sourceApiKey &&
+      isAirAwareNode(sourceMacUpper) &&
       merged.uasId &&
       typeof merged.lat === 'number' &&
       typeof merged.lon === 'number' &&
       !(merged.lat === 0 && merged.lon === 0)
     ) {
-      void uploadDetection({
-        nodeApiKey: sourceApiKey,
+      queueDetection({
+        sourceMac: sourceMacUpper,
         uasId: merged.uasId,
         lat: merged.lat,
         lon: merged.lon,

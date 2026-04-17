@@ -1,12 +1,11 @@
 import * as SecureStore from 'expo-secure-store';
+import { api } from './api';
+import { getDeviceIdFromMac } from './nodeRegistry';
 
-const BASE = 'https://airaware-backend-6jz6.onrender.com/api';
-const DEDUPE_WINDOW_MS = 5000;
+const FLUSH_INTERVAL_MS = 2000;
 
-const lastUploadByUas = new Map<string, number>();
-
-export interface UploadInput {
-  nodeApiKey: string;
+export interface QueueInput {
+  sourceMac: string;
   uasId: string;
   lat: number;
   lon: number;
@@ -19,54 +18,83 @@ export interface UploadInput {
   timestamp?: number;
 }
 
+interface DroneRecord {
+  id: string;
+  lat: number;
+  lon: number;
+  alt: number | null;
+  spd: number | null;
+  hdg: number | null;
+  op_lat: number | null;
+  op_lon: number | null;
+}
+
+// Per-deviceId buffer keyed by uasId so repeat sightings within a flush
+// window collapse to the latest reading instead of N separate POSTs.
+const queue = new Map<string, Map<string, DroneRecord>>();
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+const loggedMissingNodes = new Set<string>();
+
 function finiteOrNull(n: number | undefined): number | null {
   return Number.isFinite(n) ? (n as number) : null;
 }
 
-export async function uploadDetection(input: UploadInput): Promise<void> {
-  if (!input.nodeApiKey || !input.uasId) return;
+export function queueDetection(input: QueueInput): void {
+  if (!input.sourceMac || !input.uasId) return;
   if (!Number.isFinite(input.lat) || !Number.isFinite(input.lon)) return;
   if (input.lat === 0 && input.lon === 0) return;
 
-  // Only upload when the user is logged in — presence of the user JWT gates uploads,
-  // but the request itself authenticates with the node api_key.
-  const userToken = await SecureStore.getItemAsync('auth_token');
-  if (!userToken) return;
-
-  const now = Date.now();
-  const last = lastUploadByUas.get(input.uasId) ?? 0;
-  if (now - last < DEDUPE_WINDOW_MS) return;
-  lastUploadByUas.set(input.uasId, now);
-
-  const body = {
-    drones: [
-      {
-        id: input.uasId,
-        lat: input.lat,
-        lon: input.lon,
-        alt: finiteOrNull(input.altGeo),
-        spd: finiteOrNull(input.speedHoriz),
-        hdg: finiteOrNull(input.heading),
-        op_lat: finiteOrNull(input.opLat),
-        op_lon: finiteOrNull(input.opLon),
-      },
-    ],
+  const deviceId = getDeviceIdFromMac(input.sourceMac);
+  const drone: DroneRecord = {
+    id: input.uasId,
+    lat: input.lat,
+    lon: input.lon,
+    alt: finiteOrNull(input.altGeo),
+    spd: finiteOrNull(input.speedHoriz),
+    hdg: finiteOrNull(input.heading),
+    op_lat: finiteOrNull(input.opLat),
+    op_lon: finiteOrNull(input.opLon),
   };
 
-  try {
-    const res = await fetch(`${BASE}/detections`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'x-node-api-key': input.nodeApiKey,
-      },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      console.log('[detectionUploader] response:', res.status, await res.text());
-    }
-  } catch (e) {
-    console.warn('[detectionUploader] network error:', e);
+  let bucket = queue.get(deviceId);
+  if (!bucket) {
+    bucket = new Map();
+    queue.set(deviceId, bucket);
   }
+  bucket.set(input.uasId, drone);
+
+  if (!flushTimer) {
+    flushTimer = setTimeout(() => { void flush(); }, FLUSH_INTERVAL_MS);
+  }
+}
+
+async function flush(): Promise<void> {
+  flushTimer = null;
+  if (queue.size === 0) return;
+
+  const userToken = await SecureStore.getItemAsync('auth_token');
+  if (!userToken) {
+    queue.clear();
+    return;
+  }
+
+  const batches = Array.from(queue.entries());
+  queue.clear();
+
+  await Promise.all(batches.map(async ([deviceId, bucket]) => {
+    const drones = Array.from(bucket.values());
+    if (!drones.length) return;
+    try {
+      await api.nodeDetections(deviceId, drones);
+    } catch (e: any) {
+      if (e?.status === 404) {
+        if (!loggedMissingNodes.has(deviceId)) {
+          loggedMissingNodes.add(deviceId);
+          console.warn(`[detectionUploader] node ${deviceId} not found, dropping detections (logged once per session)`);
+        }
+        return;
+      }
+      console.warn('[detectionUploader] upload failed:', e?.message ?? e);
+    }
+  }));
 }

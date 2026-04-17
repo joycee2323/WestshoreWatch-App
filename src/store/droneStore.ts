@@ -18,7 +18,6 @@ export interface DroneEntry extends Partial<OdidDetection> {
   opLat?: number;
   opLon?: number;
   sourceMac?: string;
-  sourceApiKey?: string;
 }
 
 interface DroneStore {
@@ -72,7 +71,6 @@ export const useDroneStore = create<DroneStore>((set) => ({
         opLat: data.opLat ?? existing?.opLat,
         opLon: data.opLon ?? existing?.opLon,
         sourceMac: (data as any).sourceMac ?? existing?.sourceMac,
-        sourceApiKey: (data as any).sourceApiKey ?? existing?.sourceApiKey,
         hasBasicId: data.hasBasicId || existing?.hasBasicId,
         hasLocation: data.hasLocation || existing?.hasLocation,
         hasSystem: data.hasSystem || existing?.hasSystem,

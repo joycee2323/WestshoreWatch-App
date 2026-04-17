@@ -26,7 +26,7 @@ async function request(
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     console.warn(`API ${method} ${path} → ${res.status}:`, err);
-    throw new Error(err.error || 'Request failed');
+    throw Object.assign(new Error(err.error || 'Request failed'), { status: res.status });
   }
   return res.json();
 }
@@ -54,13 +54,18 @@ export const api = {
     request('PATCH', `/deployments/nodes/${nodeId}/assign`, { deployment_id: deploymentId }),
   unassignNode: (nodeId: string) =>
     request('PATCH', `/deployments/nodes/${nodeId}/assign`, { deployment_id: null }),
-  nodeHeartbeat: (apiKey: string, location: { lat: number; lon: number }) =>
-    request(
-      'POST',
-      '/nodes/heartbeat',
-      { lat: location.lat, lon: location.lon, connection_type: 'ble_relay' },
-      { 'X-Node-Api-Key': apiKey },
-    ),
+  nodeHeartbeat: (
+    deviceId: string,
+    payload: { last_lat?: number; last_lon?: number; firmware_version?: string; connection_type?: string },
+  ) =>
+    request('POST', `/nodes/${encodeURIComponent(deviceId)}/heartbeat`, {
+      connection_type: payload.connection_type ?? 'ble_relay',
+      ...(payload.last_lat != null ? { last_lat: payload.last_lat } : {}),
+      ...(payload.last_lon != null ? { last_lon: payload.last_lon } : {}),
+      ...(payload.firmware_version != null ? { firmware_version: payload.firmware_version } : {}),
+    }),
+  nodeDetections: (deviceId: string, drones: any[]) =>
+    request('POST', `/nodes/${encodeURIComponent(deviceId)}/detections`, { drones }),
 
   // Detections
   getDetections: (deploymentId: string) =>
