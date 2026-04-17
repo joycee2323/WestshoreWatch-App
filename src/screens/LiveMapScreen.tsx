@@ -10,10 +10,23 @@ import { createWebSocket, api } from '../services/api';
 import { useTheme, getDroneColor } from '../theme';
 import { OP_STATUS_AIRBORNE } from '../services/odidParser';
 import { startBleScanning, stopBleScanning } from '../services/bleScanner';
+import { fetchNodes as fetchNodeRegistry, getNodeByMac, getDeviceIdFromMac } from '../services/nodeRegistry';
 import * as Location from 'expo-location';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_STALE_MS = 60_000;
+const HEARTBEAT_FORGET_MS = 300_000;
 const NICKNAMES_STORAGE_KEY = 'drone_nicknames';
+
+const loggedMissingHeartbeatNodes = new Set<string>();
+// Last time we saw a BLE advertisement from each node (keyed by raw uppercased
+// MAC, same key as heartbeatTimers). Used to stop sending heartbeats once a
+// node goes out of range, since the BLE foreground service keeps this JS
+// process alive indefinitely.
+const lastBleSeenAt = new Map<string, number>();
+// MACs whose heartbeat is currently in the "skipping (stale)" state, so the
+// skip log fires once on the fresh→stale transition rather than every tick.
+const currentlySkippingHeartbeats = new Set<string>();
 
 export default function LiveMapScreen() {
   const colors = useTheme();
@@ -62,48 +75,76 @@ export default function LiveMapScreen() {
   const cameraRef = useRef<MapboxGL.Camera>(null);
   const timeouts = useRef<Record<string, any>>({});
 
-  // Per-node heartbeat timers keyed by MAC, plus latest api key per MAC
-  // so the interval callback always uses the freshest value.
   const heartbeatTimers = useRef<Map<string, any>>(new Map());
-  const nodeApiKeys = useRef<Map<string, string>>(new Map());
 
   const allDrones = { ...bleDrones, ...backendDrones };
   const droneList = Object.values(allDrones);
 
-  const sendHeartbeat = useCallback(async (apiKey: string) => {
+  const sendHeartbeat = useCallback(async (mac: string) => {
+    const deviceId = getDeviceIdFromMac(mac);
     try {
       const pos = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
-      await api.nodeHeartbeat(apiKey, {
-        lat: pos.coords.latitude,
-        lon: pos.coords.longitude,
+      await api.nodeHeartbeat(deviceId, {
+        last_lat: pos.coords.latitude,
+        last_lon: pos.coords.longitude,
       });
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.status === 404) {
+        if (!loggedMissingHeartbeatNodes.has(deviceId)) {
+          loggedMissingHeartbeatNodes.add(deviceId);
+          console.warn(`nodeHeartbeat: node ${deviceId} not found, dropping heartbeats (logged once per session)`);
+        }
+        return;
+      }
       console.warn('nodeHeartbeat failed:', err);
     }
   }, []);
 
-  const ensureHeartbeat = useCallback((mac: string, apiKey: string) => {
-    nodeApiKeys.current.set(mac, apiKey);
+  const ensureHeartbeat = useCallback((mac: string) => {
     if (heartbeatTimers.current.has(mac)) return;
-    sendHeartbeat(apiKey);
+    sendHeartbeat(mac);
     const timer = setInterval(() => {
-      const key = nodeApiKeys.current.get(mac);
-      if (key) sendHeartbeat(key);
+      const last = lastBleSeenAt.get(mac);
+      const now = Date.now();
+      const idleMs = last == null ? Infinity : now - last;
+      const wasSkipping = currentlySkippingHeartbeats.has(mac);
+
+      if (idleMs > HEARTBEAT_FORGET_MS) {
+        clearInterval(timer);
+        heartbeatTimers.current.delete(mac);
+        lastBleSeenAt.delete(mac);
+        currentlySkippingHeartbeats.delete(mac);
+        console.log(`[heartbeat] forget ${getDeviceIdFromMac(mac)}: no BLE for 5+ min`);
+        return;
+      }
+
+      if (idleMs > HEARTBEAT_STALE_MS) {
+        if (!wasSkipping) {
+          currentlySkippingHeartbeats.add(mac);
+          console.log(`[heartbeat] skip ${getDeviceIdFromMac(mac)}: stale ${Math.round(idleMs / 1000)}s`);
+        }
+        return;
+      }
+
+      if (wasSkipping) currentlySkippingHeartbeats.delete(mac);
+      sendHeartbeat(mac);
     }, HEARTBEAT_INTERVAL_MS);
     heartbeatTimers.current.set(mac, timer);
   }, [sendHeartbeat]);
 
   useEffect(() => {
     setMode('backend');
+    void fetchNodeRegistry();
     requestPermissions().then(() => {
       loadActiveDeployment();
       startBleScanning(
         det => updateBleDrone(det.mac, det),
-        (mac, rssi, apiKey) => {
+        (mac, rssi) => {
           updateNearbyNode(mac, rssi);
-          if (apiKey) ensureHeartbeat(mac, apiKey);
+          lastBleSeenAt.set(mac, Date.now());
+          ensureHeartbeat(mac);
         }
       );
     });
@@ -112,7 +153,6 @@ export default function LiveMapScreen() {
       stopBleScanning();
       heartbeatTimers.current.forEach(t => clearInterval(t));
       heartbeatTimers.current.clear();
-      nodeApiKeys.current.clear();
     };
   }, []);
 
@@ -371,24 +411,9 @@ export default function LiveMapScreen() {
         const dOpLat = liveDrone.opLat ?? liveDrone.op_lat;
         const dOpLon = liveDrone.opLon ?? liveDrone.op_lon;
 
-        // Look up source node by matching sourceApiKey against the nodes list.
-        // sourceApiKey comes from NODE_API_KEYS in bleScanner.ts (BLE MAC → api_key).
-        // Look up source node by deriving station MAC from BLE sourceMac.
-        // BLE MAC has last byte 2 higher than station MAC, and backend
-        // stores device_id as uppercase hex without colons (e.g. "98A3167D2634").
+        // Resolve source node name from the registry by BLE MAC.
         const srcMac = liveDrone.sourceMac;
-        const currentNodes = nodesRef.current;
-        let sourceNode: any = null;
-        if (srcMac) {
-          const stripped = srcMac.replace(/:/g, '').toUpperCase();
-          const lastByte = parseInt(stripped.slice(-2), 16) - 1;
-          if (lastByte >= 0) {
-            const stationDeviceId = stripped.slice(0, -2) + lastByte.toString(16).padStart(2, '0').toUpperCase();
-            sourceNode = currentNodes.find((n: any) =>
-              (n.device_id || '').toUpperCase() === stationDeviceId
-            );
-          }
-        }
+        const sourceNode = srcMac ? getNodeByMac(srcMac) : null;
         const nodeName = sourceNode?.name || liveDrone.node_name || '—';
 
         const uasId = liveDrone.uasId || liveDrone.uas_id || liveDrone.mac;
