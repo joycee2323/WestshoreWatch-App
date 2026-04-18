@@ -11,6 +11,7 @@ export interface OdidDetection {
   hasBasicId: boolean;
   hasLocation: boolean;
   hasSystem: boolean;
+  msgType?: number; // 0=BasicId, 1=Location, 4=System, 0xF=MessagePack
   uasId?: string;
   lat?: number;
   lon?: number;
@@ -35,6 +36,7 @@ function readUInt16LE(buf: Uint8Array, offset: number): number {
 }
 
 function parseBasicId(msg: Uint8Array): Partial<OdidDetection> {
+  const msgType = (msg[0] >> 4) & 0x0F;
   // Byte 0: msg type, Byte 1: ID type + UA type, Bytes 2-21: 20-byte UAS ID
   const idBytes = msg.slice(2, 22);
   let uasId = '';
@@ -42,11 +44,12 @@ function parseBasicId(msg: Uint8Array): Partial<OdidDetection> {
     if (idBytes[i] === 0) break;
     uasId += String.fromCharCode(idBytes[i]);
   }
-  return { hasBasicId: true, uasId: uasId || undefined };
+  return { msgType, hasBasicId: true, uasId: uasId || undefined };
 }
 
 function parseLocation(msg: Uint8Array): Partial<OdidDetection> {
-  if (msg.length < 25) return {};
+  const msgType = (msg[0] >> 4) & 0x0F;
+  if (msg.length < 25) return { msgType };
 
   // Layout matches C6-Firmware ble_relay.c encode_location():
   //   [0] msg type | [1] status/ew_seg | [2] dir_mod/speed_mult | [3] speed | [4] vert_speed
@@ -67,19 +70,20 @@ function parseLocation(msg: Uint8Array): Partial<OdidDetection> {
   const speedHoriz = speedMult ? (speedRaw * 0.75 + 63.75) : (speedRaw * 0.25);
   const heading = dirMod + (ewSeg * 180);
 
-  if (lat === 0 && lon === 0) return { hasLocation: false };
+  if (lat === 0 && lon === 0) return { msgType, hasLocation: false };
 
-  return { hasLocation: true, lat, lon, altGeo, speedHoriz, heading, status };
+  return { msgType, hasLocation: true, lat, lon, altGeo, speedHoriz, heading, status };
 }
 
 function parseSystem(msg: Uint8Array): Partial<OdidDetection> {
-  if (msg.length < 25) return {};
+  const msgType = (msg[0] >> 4) & 0x0F;
+  if (msg.length < 25) return { msgType };
   const opLatRaw = readInt32LE(msg, 2);
   const opLonRaw = readInt32LE(msg, 6);
   const opLat = opLatRaw / 1e7;
   const opLon = opLonRaw / 1e7;
-  if (opLat === 0 && opLon === 0) return { hasSystem: false };
-  return { hasSystem: true, opLat, opLon };
+  if (opLat === 0 && opLon === 0) return { msgType, hasSystem: false };
+  return { msgType, hasSystem: true, opLat, opLon };
 }
 
 // Parse a single ODID message (25 bytes)
@@ -96,7 +100,8 @@ function parseOdidMessage(msg: Uint8Array): Partial<OdidDetection> {
 
 // Parse message pack (multiple messages in one advertisement)
 function parsePack(data: Uint8Array): Partial<OdidDetection> {
-  if (data.length < 2) return {};
+  const msgType = (data[0] >> 4) & 0x0F; // 0xF for a pack
+  if (data.length < 2) return { msgType };
   const msgCount = data[1] & 0x1F;
   let result: Partial<OdidDetection> = {};
   for (let i = 0; i < msgCount; i++) {
@@ -106,7 +111,8 @@ function parsePack(data: Uint8Array): Partial<OdidDetection> {
     const parsed = parseOdidMessage(msg);
     result = { ...result, ...parsed };
   }
-  return result;
+  // Override sub-messages' msgType so the caller sees this was a pack.
+  return { ...result, msgType };
 }
 
 // Find ODID service data in raw advertisement bytes

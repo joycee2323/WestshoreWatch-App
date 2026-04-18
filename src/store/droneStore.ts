@@ -45,6 +45,7 @@ export const useDroneStore = create<DroneStore>((set) => ({
   nearbyNodes: {},
 
   updateBleDrone: (uasId, data) => {
+    console.log(`[droneStore] updateBleDrone uasId=${uasId} lat=${data.lat} lon=${data.lon}`);
     const now = Date.now();
     set(state => {
       const existing = state.bleDrones[uasId];
@@ -131,6 +132,7 @@ setInterval(() => {
   const { bleDrones, removeDrone } = useDroneStore.getState();
   for (const uasId of Object.keys(bleDrones)) {
     if (now - bleDrones[uasId].lastSeen > DRONE_STALE_MS) {
+      console.log(`[droneStore] stale-remove uasId=${uasId} last=${now - bleDrones[uasId].lastSeen}ms ago`);
       removeDrone(uasId);
     }
   }

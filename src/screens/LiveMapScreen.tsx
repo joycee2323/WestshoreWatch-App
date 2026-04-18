@@ -79,6 +79,7 @@ export default function LiveMapScreen() {
 
   const allDrones = { ...bleDrones, ...backendDrones };
   const droneList = Object.values(allDrones);
+  console.log(`[LiveMap] render droneList.len=${droneList.length} keys=[${droneList.map((d: any) => d.uasId || d.mac).join(',')}]`);
 
   const sendHeartbeat = useCallback(async (mac: string) => {
     const deviceId = getDeviceIdFromMac(mac);

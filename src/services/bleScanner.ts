@@ -96,6 +96,8 @@ export async function startBleScanning(
     const rssi = device.rssi ?? -100;
     const now = Date.now();
     const mac = device.mac;
+    const serviceDataMap = device.serviceData;
+    console.log(`[bleScan] event mac=${mac} svc=${Object.keys(serviceDataMap || {}).join(',')}`);
 
     if (isAirAwareNode(mac)) {
       const macUpper = mac.toUpperCase();
@@ -107,7 +109,6 @@ export async function startBleScanning(
       if (onNodeNearby) onNodeNearby(macUpper, rssi);
     }
 
-    const serviceDataMap = device.serviceData;
     if (!serviceDataMap) return;
 
     const ODID_UUID_KEY = '0000fffa-0000-1000-8000-00805f9b34fb';
@@ -115,6 +116,7 @@ export async function startBleScanning(
     if (!serviceData) return;
 
     const parsed = parseOdidAdvertisement(mac, rssi, serviceData);
+    console.log(`[bleScan] parsed msgType=${parsed?.msgType ?? 'null'} uasId=${parsed?.uasId ?? 'none'} hasBasic=${parsed?.hasBasicId} hasLoc=${parsed?.hasLocation} lat=${parsed?.lat} lon=${parsed?.lon}`);
     if (!parsed) return;
 
     if (parsed.uasId === 'DroneScout Bridge') return;
@@ -122,6 +124,7 @@ export async function startBleScanning(
     // Can't attribute a message with no UAS ID — two drones relayed through
     // one node would collapse into each other's merge state. A subsequent
     // BasicId or Pack from the same drone will carry the fields we need.
+    console.log(`[bleScan] uasId-guard: ${parsed?.uasId ? 'PASS' : 'BLOCKED'}`);
     if (!parsed.uasId) return;
 
     const sourceMacUpper = mac.toUpperCase();
@@ -149,6 +152,7 @@ export async function startBleScanning(
       void notifyNewDrone(parsed.uasId);
     }
 
+    console.log(`[bleScan] onDetection uasId=${parsed.uasId} lat=${parsed.lat} lon=${parsed.lon}`);
     onDetection({
       mac,
       uasId: parsed.uasId,
