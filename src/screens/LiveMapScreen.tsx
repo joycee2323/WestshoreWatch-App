@@ -140,7 +140,7 @@ export default function LiveMapScreen() {
     requestPermissions().then(() => {
       loadActiveDeployment();
       startBleScanning(
-        det => updateBleDrone(det.mac, det),
+        det => { if (det.uasId) updateBleDrone(det.uasId, det); },
         (mac, rssi) => {
           updateNearbyNode(mac, rssi);
           lastBleSeenAt.set(mac, Date.now());
@@ -249,7 +249,7 @@ export default function LiveMapScreen() {
 
         {/* Drone flight path polylines */}
         {droneList.map((drone: any) => {
-          const id = drone.mac || drone.uas_id;
+          const id = drone.uasId || drone.uas_id || drone.mac;
           const path = drone.path as { lat: number; lon: number }[] | undefined;
           if (!path || path.length < 2) return null;
           const coords = path.map(p => [p.lon, p.lat]);
@@ -276,7 +276,7 @@ export default function LiveMapScreen() {
             features: droneList
               .filter((d: any) => (d.lat ?? d.last_lat) && (d.lon ?? d.last_lon))
               .map((d: any) => {
-                const id = d.mac || d.uas_id;
+                const id = d.uasId || d.uas_id || d.mac;
                 const hdg = d.heading ?? d.last_heading ?? 0;
                 return {
                   type: 'Feature' as const,
@@ -298,7 +298,7 @@ export default function LiveMapScreen() {
             const feature = e.features?.[0];
             if (!feature) return;
             const droneId = feature.properties?.droneId;
-            const drone = droneList.find((d: any) => (d.mac || d.uas_id) === droneId);
+            const drone = droneList.find((d: any) => (d.uasId || d.uas_id || d.mac) === droneId);
             if (drone) setSelectedDrone(drone);
           }}
         >
@@ -339,7 +339,7 @@ export default function LiveMapScreen() {
                 return opLat && opLon && (opLat !== 0 || opLon !== 0);
               })
               .map((d: any) => {
-                const id = d.mac || d.uas_id;
+                const id = d.uasId || d.uas_id || d.mac;
                 return {
                   type: 'Feature' as const,
                   id: `pilot-${id}`,
@@ -398,9 +398,9 @@ export default function LiveMapScreen() {
       {/* Selected drone sheet */}
       {selectedDrone && (() => {
         // Live lookup so the panel reflects real-time updates, not a stale snapshot
-        const selId = selectedDrone.mac || selectedDrone.uas_id;
+        const selId = selectedDrone.uasId || selectedDrone.uas_id || selectedDrone.mac;
         const liveDrone = droneList.find((d: any) =>
-          (d.mac || d.uas_id) === selId
+          (d.uasId || d.uas_id || d.mac) === selId
         ) ?? selectedDrone;
 
         // Normalize field names: BLE drones use camelCase, backend uses snake_case

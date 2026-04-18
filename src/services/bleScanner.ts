@@ -119,15 +119,21 @@ export async function startBleScanning(
 
     if (parsed.uasId === 'DroneScout Bridge') return;
 
+    // Can't attribute a message with no UAS ID — two drones relayed through
+    // one node would collapse into each other's merge state. A subsequent
+    // BasicId or Pack from the same drone will carry the fields we need.
+    if (!parsed.uasId) return;
+
     const sourceMacUpper = mac.toUpperCase();
 
-    // Merge with prior parses from this source — BasicId, Location, and System
-    // each only carry some of the fields.
-    const prev = mergeBySource.get(sourceMacUpper);
+    // Merge with prior parses for this UAS ID — BasicId, Location, and System
+    // each only carry some of the fields. Keyed by uasId (not source MAC) so
+    // multiple drones relayed through one node stay separate.
+    const prev = mergeBySource.get(parsed.uasId);
     const stale = !prev || (now - prev.updatedAt) > ODID_MERGE_TTL_MS;
     const merged: OdidMergeState = {
       ...(stale ? {} : prev),
-      ...(parsed.uasId !== undefined ? { uasId: parsed.uasId } : {}),
+      uasId: parsed.uasId,
       ...(parsed.hasLocation && typeof parsed.lat === 'number' && typeof parsed.lon === 'number'
         ? { lat: parsed.lat, lon: parsed.lon, altGeo: parsed.altGeo,
             speedHoriz: parsed.speedHoriz, heading: parsed.heading }
@@ -135,16 +141,17 @@ export async function startBleScanning(
       ...(parsed.hasSystem ? { opLat: parsed.opLat, opLon: parsed.opLon } : {}),
       updatedAt: now,
     };
-    mergeBySource.set(sourceMacUpper, merged);
+    mergeBySource.set(parsed.uasId, merged);
 
     // Fire a notification the first time we see this UAS ID (fresh cache entry).
     // droneNotifier dedupes per session — repeat sightings are ignored there too.
-    if (parsed.uasId && (stale || prev?.uasId !== parsed.uasId)) {
+    if (stale) {
       void notifyNewDrone(parsed.uasId);
     }
 
     onDetection({
       mac,
+      uasId: parsed.uasId,
       rssi,
       lastSeen: now,
       sourceMac: sourceMacUpper,

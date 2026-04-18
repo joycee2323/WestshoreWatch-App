@@ -65,7 +65,7 @@ export default function GuestScanScreen({ navigation }: any) {
     setScanning(true);
     try {
       await startBleScanning(
-        (det) => { updateBleDrone(det.mac, det); },
+        (det) => { if (det.uasId) updateBleDrone(det.uasId, det); },
         (mac, rssi) => { updateNearbyNode(mac, rssi); }
       );
     } catch (err: any) {
@@ -89,14 +89,15 @@ export default function GuestScanScreen({ navigation }: any) {
         <MapboxGL.UserLocation visible={locationGranted} />
 
         {/* Drone markers */}
-        {droneList.map(drone => {
+        {droneList.map((drone: any) => {
           if (!drone.lat || !drone.lon) return null;
-          const color = getDroneColor(drone.mac);
+          const id = drone.uasId || drone.uas_id || drone.mac;
+          const color = getDroneColor(id);
           const airborne = drone.status === OP_STATUS_AIRBORNE;
           return (
             <MapboxGL.PointAnnotation
-              key={drone.mac}
-              id={drone.mac}
+              key={id}
+              id={id}
               coordinate={[drone.lon, drone.lat]}
               onSelected={() => setSelectedDrone(drone)}
             >
@@ -108,18 +109,19 @@ export default function GuestScanScreen({ navigation }: any) {
         })}
 
         {/* Flight paths */}
-        {droneList.map(drone => {
+        {droneList.map((drone: any) => {
           if (drone.path.length < 2) return null;
-          const color = getDroneColor(drone.mac);
-          const coords = drone.path.map(p => [p.lon, p.lat]);
+          const id = drone.uasId || drone.uas_id || drone.mac;
+          const color = getDroneColor(id);
+          const coords = drone.path.map((p: any) => [p.lon, p.lat]);
           return (
             <MapboxGL.ShapeSource
-              key={`path-${drone.mac}`}
-              id={`path-${drone.mac}`}
+              key={`path-${id}`}
+              id={`path-${id}`}
               shape={{ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }}
             >
               <MapboxGL.LineLayer
-                id={`line-${drone.mac}`}
+                id={`line-${id}`}
                 style={{ lineColor: color, lineWidth: 1.5, lineOpacity: 0.6 }}
               />
             </MapboxGL.ShapeSource>
@@ -153,14 +155,16 @@ export default function GuestScanScreen({ navigation }: any) {
       {/* Drone list */}
       {droneList.length > 0 && (
         <View style={s.droneList}>
-          {droneList.map(drone => {
-            const color = getDroneColor(drone.mac);
+          {droneList.map((drone: any) => {
+            const id = drone.uasId || drone.uas_id || drone.mac;
+            const selId = selectedDrone ? (selectedDrone as any).uasId || (selectedDrone as any).uas_id || selectedDrone.mac : null;
+            const color = getDroneColor(id);
             const age = Math.round((Date.now() - drone.lastSeen) / 1000);
             const airborne = drone.status === OP_STATUS_AIRBORNE;
             return (
               <TouchableOpacity
-                key={drone.mac}
-                style={[s.droneRow, selectedDrone?.mac === drone.mac && { borderLeftColor: color, borderLeftWidth: 3 }]}
+                key={id}
+                style={[s.droneRow, selId === id && { borderLeftColor: color, borderLeftWidth: 3 }]}
                 onPress={() => {
                   setSelectedDrone(drone);
                   if (drone.lat && drone.lon) {

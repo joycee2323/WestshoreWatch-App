@@ -28,8 +28,8 @@ interface DroneStore {
   // Which source to display
   mode: 'ble' | 'backend';
 
-  updateBleDrone: (mac: string, data: Partial<OdidDetection> & { rssi: number }) => void;
-  removeDrone: (mac: string) => void;
+  updateBleDrone: (uasId: string, data: Partial<OdidDetection> & { rssi: number }) => void;
+  removeDrone: (uasId: string) => void;
   clearBleDrones: () => void;
   setBackendDrones: (drones: Record<string, any>) => void;
   updateBackendDrone: (drone: any) => void;
@@ -44,10 +44,10 @@ export const useDroneStore = create<DroneStore>((set) => ({
   mode: 'ble',
   nearbyNodes: {},
 
-  updateBleDrone: (mac, data) => {
+  updateBleDrone: (uasId, data) => {
     const now = Date.now();
     set(state => {
-      const existing = state.bleDrones[mac];
+      const existing = state.bleDrones[uasId];
       const prevPath = existing?.path || [];
       const newPoint = (data.lat && data.lon)
         ? [{ lat: data.lat, lon: data.lon, ts: now }]
@@ -55,13 +55,14 @@ export const useDroneStore = create<DroneStore>((set) => ({
 
       // Merge — later messages win for each field, but don't overwrite with undefined
       const merged: DroneEntry = {
-        mac,
+        // mac here is the source/relay MAC — kept for attribution, NOT the dedup key
+        mac: data.mac ?? existing?.mac ?? '',
         firstSeen: existing?.firstSeen ?? now,
         lastSeen: now,
         path: [...prevPath, ...newPoint].slice(-200), // keep last 200 points
         rssi: data.rssi,
         // Carry forward existing values, overwrite with new non-null values
-        uasId: data.uasId ?? existing?.uasId,
+        uasId: data.uasId ?? existing?.uasId ?? uasId,
         lat: data.lat ?? existing?.lat,
         lon: data.lon ?? existing?.lon,
         altGeo: data.altGeo ?? existing?.altGeo,
@@ -77,15 +78,15 @@ export const useDroneStore = create<DroneStore>((set) => ({
       };
 
       return {
-        bleDrones: { ...state.bleDrones, [mac]: merged },
+        bleDrones: { ...state.bleDrones, [uasId]: merged },
       };
     });
   },
 
-  removeDrone: (mac) => {
+  removeDrone: (uasId) => {
     set(state => {
       const next = { ...state.bleDrones };
-      delete next[mac];
+      delete next[uasId];
       return { bleDrones: next };
     });
   },
@@ -128,9 +129,9 @@ const CLEANUP_INTERVAL_MS = 10000;
 setInterval(() => {
   const now = Date.now();
   const { bleDrones, removeDrone } = useDroneStore.getState();
-  for (const mac of Object.keys(bleDrones)) {
-    if (now - bleDrones[mac].lastSeen > DRONE_STALE_MS) {
-      removeDrone(mac);
+  for (const uasId of Object.keys(bleDrones)) {
+    if (now - bleDrones[uasId].lastSeen > DRONE_STALE_MS) {
+      removeDrone(uasId);
     }
   }
 }, CLEANUP_INTERVAL_MS);
