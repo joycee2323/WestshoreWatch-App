@@ -143,14 +143,9 @@ export default function LiveMapScreen() {
   // into the ref).
   const refetchNodes = useCallback(async (dep?: any) => {
     const active = dep ?? activeDeploymentRef.current;
-    console.log(`[nodeRefetch] called active=${active?.id ?? 'null'} dep-param=${dep?.id ?? 'undefined'}`);
-    if (!active) {
-      console.log('[nodeRefetch] no active deployment, skipping');
-      return;
-    }
+    if (!active) return;
     try {
       const nodeList = await api.getNodes(active.id);
-      console.log(`[nodeRefetch] got ${nodeList.length} nodes: ${nodeList.map((n: any) => n.id).join(',')}`);
       setNodes(nodeList);
     } catch (err) {
       console.warn('[nodeRefetch] failed:', err);
@@ -194,7 +189,6 @@ export default function LiveMapScreen() {
   // the Nodes tab and returns, where assignments may have changed).
   useFocusEffect(
     useCallback(() => {
-      console.log('[nodeRefetch] useFocusEffect triggered');
       void refetchNodes();
     }, [refetchNodes])
   );
@@ -204,7 +198,6 @@ export default function LiveMapScreen() {
   useEffect(() => {
     let prevState = AppState.currentState;
     const sub = AppState.addEventListener('change', (state) => {
-      console.log(`[nodeRefetch] AppState ${prevState} -> ${state}`);
       if (prevState !== 'active' && state === 'active') {
         void refetchNodes();
       }
@@ -248,7 +241,6 @@ export default function LiveMapScreen() {
       const deps = await api.getDeployments();
       const active = deps.find((d: any) => d.status === 'active');
       if (active) {
-        console.log(`[nodeRefetch] active deployment loaded: ${active?.id ?? 'null'}`);
         setActiveDeployment(active);
         connectWebSocket(active.id);
         const dets = await api.getDetections(active.id);
@@ -272,7 +264,6 @@ export default function LiveMapScreen() {
       }
       if (msg.type === 'NODE_ONLINE') {
         const existing = nodesRef.current.find((n: any) => n.id === msg.node_id);
-        console.log(`[nodeRefetch] NODE_ONLINE node_id=${msg.node_id} existing=${!!existing}`);
         if (existing) {
           setNodes(prev => prev.map((n: any) =>
             n.id === msg.node_id
@@ -460,16 +451,7 @@ export default function LiveMapScreen() {
           </View>
           <View style={s.stat}>
             <Text style={[s.statVal, { color: colors.green }]}>
-              {(() => {
-                const count = nodes.filter(n =>
-                  n.last_lat &&
-                  n.last_lon &&
-                  n.last_seen &&
-                  (Date.now() - new Date(n.last_seen).getTime() < 120000)
-                ).length;
-                console.log(`[nodeRefetch] render counter: nodes.len=${nodes.length} filtered=${count}`);
-                return count;
-              })()}
+              {nodes.filter(n => n.last_lat && n.last_lon && n.last_seen && (Date.now() - new Date(n.last_seen).getTime() < 120000)).length}
             </Text>
             <Text style={s.statLabel}>NODES</Text>
           </View>
