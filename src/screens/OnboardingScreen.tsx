@@ -7,8 +7,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
 import { useAuthStore } from '../store/authStore';
 
-const X1_URL = 'https://westshoredrone.com/airaware-x1/';
-const M1_URL = 'https://westshoredrone.com/airaware-m1/';
+const X1_URL = 'https://westshoredrone.com/watch-x1/';
+const M1_URL = 'https://westshoredrone.com/watch-m1/';
 const DASHBOARD_URL = 'https://watch.westshoredrone.com/nodes';
 
 interface Props {
