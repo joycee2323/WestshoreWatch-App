@@ -6,7 +6,7 @@ import {
 import { WebView } from 'react-native-webview';
 import * as SecureStore from 'expo-secure-store';
 
-const BILLING_URL = 'https://airaware.westshoredrone.com/billing';
+const BILLING_URL = 'https://watch.westshoredrone.com/billing';
 
 const COLORS = {
   bg: '#0a0a0f', surface: '#12121a', border: '#1e1e2e', text: '#e2e8f0', cyan: '#00d4ff',

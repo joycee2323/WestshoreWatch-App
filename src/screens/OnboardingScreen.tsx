@@ -9,7 +9,7 @@ import { useAuthStore } from '../store/authStore';
 
 const X1_URL = 'https://westshoredrone.com/airaware-x1/';
 const M1_URL = 'https://westshoredrone.com/airaware-m1/';
-const DASHBOARD_URL = 'https://airaware.westshoredrone.com/nodes';
+const DASHBOARD_URL = 'https://watch.westshoredrone.com/nodes';
 
 interface Props {
   onRefresh: () => void;
@@ -47,26 +47,26 @@ export default function OnboardingScreen({ onRefresh, refreshing }: Props) {
         }
       >
       <View style={s.header}>
-        <Text style={s.logo}>AIRAWARE</Text>
+        <Text style={s.logo}>WESTSHORE WATCH</Text>
         <Text style={s.subtitle}>Remote ID Operations</Text>
       </View>
 
       <View style={s.body}>
         <Text style={s.heading}>NO NODES REGISTERED</Text>
         <Text style={s.description}>
-          AirAware needs at least one X1 node to start detecting drones in your area.
+          Westshore Watch needs at least one X1 node to start detecting drones in your area.
           Each node is a dedicated BLE/Wi-Fi sensor that relays Remote ID broadcasts
           to your dashboard in real time.
         </Text>
 
-        <Text style={s.chooseLabel}>Choose your AirAware node:</Text>
+        <Text style={s.chooseLabel}>Choose your Westshore Watch node:</Text>
 
         <TouchableOpacity
           style={s.primaryBtn}
           onPress={() => Linking.openURL(X1_URL)}
           activeOpacity={0.8}
         >
-          <Text style={s.primaryBtnText}>GET AIRAWARE X1</Text>
+          <Text style={s.primaryBtnText}>GET WESTSHORE WATCH X1</Text>
           <Text style={s.primaryBtnPrice}>$799</Text>
         </TouchableOpacity>
 
@@ -75,7 +75,7 @@ export default function OnboardingScreen({ onRefresh, refreshing }: Props) {
           onPress={() => Linking.openURL(M1_URL)}
           activeOpacity={0.8}
         >
-          <Text style={s.secondaryBtnText}>GET AIRAWARE M1</Text>
+          <Text style={s.secondaryBtnText}>GET WESTSHORE WATCH M1</Text>
           <Text style={s.secondaryBtnPrice}>$399</Text>
         </TouchableOpacity>
 
@@ -85,7 +85,7 @@ export default function OnboardingScreen({ onRefresh, refreshing }: Props) {
           activeOpacity={0.6}
         >
           <Text style={s.secondaryText}>I already have a node →</Text>
-          <Text style={s.secondarySub}>Register it at airaware.westshoredrone.com/nodes</Text>
+          <Text style={s.secondarySub}>Register it at watch.westshoredrone.com/nodes</Text>
         </TouchableOpacity>
       </View>
 

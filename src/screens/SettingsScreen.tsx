@@ -22,8 +22,8 @@ export default function SettingsScreen() {
   const handleAdminPanel = async () => {
     const token = await SecureStore.getItemAsync('auth_token');
     const base = isSuperAdmin
-      ? 'https://airaware.westshoredrone.com/admin'
-      : 'https://airaware.westshoredrone.com/org';
+      ? 'https://watch.westshoredrone.com/admin'
+      : 'https://watch.westshoredrone.com/org';
     const url = token ? `${base}?app_token=${token}&_t=${Date.now()}` : base;
     Linking.openURL(url);
   };
@@ -122,7 +122,7 @@ export default function SettingsScreen() {
       <View style={s.card}>
         <Text style={s.cardHeader}>APP INFO</Text>
         <Row label="VERSION" value="1.0.0" colors={colors} />
-        <Row label="BACKEND" value="airaware.westshoredrone.com" colors={colors} />
+        <Row label="BACKEND" value="watch.westshoredrone.com" colors={colors} />
         <Row label="BLE SCANNING" value="Active" colors={colors} />
       </View>
 

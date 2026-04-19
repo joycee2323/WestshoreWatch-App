@@ -39,7 +39,7 @@ export default function ForgotPasswordScreen({ navigation }: any) {
     >
       <View style={s.inner}>
         <View style={s.header}>
-          <Text style={s.logo}>AIRAWARE</Text>
+          <Text style={s.logo}>WESTSHORE WATCH</Text>
           <Text style={s.subtitle}>Reset Password</Text>
           <Text style={s.brand}>Westshore Drone Services</Text>
         </View>

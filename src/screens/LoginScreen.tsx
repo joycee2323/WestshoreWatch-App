@@ -36,7 +36,7 @@ export default function LoginScreen({ navigation }: any) {
       <View style={s.inner}>
         {/* Logo / wordmark */}
         <View style={s.header}>
-          <Text style={s.logo}>AIRAWARE</Text>
+          <Text style={s.logo}>WESTSHORE WATCH</Text>
           <Text style={s.subtitle}>Remote ID Operations</Text>
           <Text style={s.brand}>Westshore Drone Services</Text>
         </View>

@@ -38,7 +38,7 @@ export default function AdminWebScreen({ url, title, onDone }: Props) {
   }, [url]);
 
   const handleNavigation = (request: WebViewNavigation) => {
-    return request.url.startsWith('https://airaware.westshoredrone.com');
+    return request.url.startsWith('https://watch.westshoredrone.com');
   };
 
   if (!fullUrl) {

@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { api } from '../services/api';
 import { useTheme } from '../theme';
 
-const TERMS_URL = 'https://airaware.westshoredrone.com/terms';
+const TERMS_URL = 'https://watch.westshoredrone.com/terms';
 
 export default function RegisterScreen({ navigation }: any) {
   const colors = useTheme();
@@ -66,7 +66,7 @@ export default function RegisterScreen({ navigation }: any) {
     >
       <ScrollView contentContainerStyle={s.inner} keyboardShouldPersistTaps="handled">
         <View style={s.header}>
-          <Text style={s.logo}>AIRAWARE</Text>
+          <Text style={s.logo}>WESTSHORE WATCH</Text>
           <Text style={s.subtitle}>Create Account</Text>
           <Text style={s.brand}>Westshore Drone Services</Text>
         </View>

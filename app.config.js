@@ -1,11 +1,11 @@
 module.exports = ({ config }) => ({
   expo: {
-    name: 'AirAware',
-    slug: 'airaware',
+    name: 'Westshore Watch',
+    slug: 'westshorewatch',
     version: '1.0.0',
     orientation: 'portrait',
     icon: './assets/icon.png',
-    scheme: 'airaware',
+    scheme: 'westshorewatch',
     userInterfaceStyle: 'automatic',
     jsEngine: 'hermes',
     splash: {
@@ -15,11 +15,11 @@ module.exports = ({ config }) => ({
     },
     ios: {
       supportsTablet: true,
-      bundleIdentifier: 'com.westshoredrone.airaware',
+      bundleIdentifier: 'com.westshoredrone.watch',
       infoPlist: {
-        NSBluetoothAlwaysUsageDescription: 'AirAware uses Bluetooth to detect nearby drones broadcasting Remote ID signals.',
-        NSLocationWhenInUseUsageDescription: 'AirAware uses your location to show detected drones relative to your position.',
-        NSLocationAlwaysAndWhenInUseUsageDescription: 'AirAware uses your location to show detected drones relative to your position.',
+        NSBluetoothAlwaysUsageDescription: 'Westshore Watch uses Bluetooth to detect nearby drones broadcasting Remote ID signals.',
+        NSLocationWhenInUseUsageDescription: 'Westshore Watch uses your location to show detected drones relative to your position.',
+        NSLocationAlwaysAndWhenInUseUsageDescription: 'Westshore Watch uses your location to show detected drones relative to your position.',
       },
     },
     android: {
@@ -27,7 +27,7 @@ module.exports = ({ config }) => ({
         foregroundImage: './assets/adaptive-icon.png',
         backgroundColor: '#0a0e1a',
       },
-      package: 'com.westshoredrone.airaware',
+      package: 'com.westshoredrone.watch',
       permissions: [
         'BLUETOOTH',
         'BLUETOOTH_ADMIN',
@@ -46,7 +46,7 @@ module.exports = ({ config }) => ({
         {
           isBackgroundEnabled: true,
           modes: ['peripheral', 'central'],
-          bluetoothAlwaysPermission: 'AirAware uses Bluetooth to detect nearby drones broadcasting Remote ID signals.',
+          bluetoothAlwaysPermission: 'Westshore Watch uses Bluetooth to detect nearby drones broadcasting Remote ID signals.',
         },
       ],
       [

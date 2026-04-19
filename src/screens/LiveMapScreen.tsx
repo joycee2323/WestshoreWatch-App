@@ -469,7 +469,7 @@ export default function LiveMapScreen() {
       {/* Deployment banner */}
       <View style={s.topBar}>
         <View>
-          <Text style={s.appName}>AIRAWARE</Text>
+          <Text style={s.appName}>WESTSHORE WATCH</Text>
           {activeDeployment && (
             <Text style={s.depName}>▸ {activeDeployment.name}</Text>
           )}

@@ -1,11 +1,11 @@
-# AirAware Mobile App
+# Westshore Watch Mobile App
 
-React Native app for AirAware X1 Remote ID operations.
+React Native app for Westshore Watch X1 Remote ID operations.
 
 ## Features
 
 - **Guest mode** — passive BLE scan for nearby drone ODID broadcasts, no login required
-- **Authenticated mode** — live map connected to AirAware backend via WebSocket, deployment management, node status
+- **Authenticated mode** — live map connected to Westshore Watch backend via WebSocket, deployment management, node status
 
 ## Setup
 
@@ -49,7 +49,7 @@ src/
     DeploymentsScreen.tsx — Deployment management
     NodesScreen.tsx       — Node status list
   services/
-    api.ts                — AirAware backend REST + WebSocket
+    api.ts                — Westshore Watch backend REST + WebSocket
     bleScanner.ts         — BLE passive scan using react-native-ble-plx
     odidParser.ts         — ASTM F3411-22a ODID message parser
   store/

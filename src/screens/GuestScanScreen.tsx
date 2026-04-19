@@ -55,7 +55,7 @@ export default function GuestScanScreen({ navigation }: any) {
     } else {
       Alert.alert(
         'Permissions Required',
-        'AirAware needs Bluetooth and Location permissions to scan for nearby drones. Please enable them in Settings.',
+        'Westshore Watch needs Bluetooth and Location permissions to scan for nearby drones. Please enable them in Settings.',
         [{ text: 'OK' }]
       );
     }
@@ -132,7 +132,7 @@ export default function GuestScanScreen({ navigation }: any) {
       {/* Top bar */}
       <View style={s.topBar}>
         <View style={s.topLeft}>
-          <Text style={s.appName}>AIRAWARE</Text>
+          <Text style={s.appName}>WESTSHORE WATCH</Text>
           <View style={[s.scanBadge, scanning && s.scanActive]}>
             <Text style={s.scanText}>{scanning ? '● SCANNING' : '○ IDLE'}</Text>
           </View>
