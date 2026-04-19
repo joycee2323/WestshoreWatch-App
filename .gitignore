@@ -10,3 +10,14 @@ ble_log.txt
 .env.local
 .vscode/
 .expo/devices.json
+
+app-log.txt
+*.logcat
+
+# Signing credentials - NEVER commit
+*.jks
+*.pem
+*.keystore
+
+# Build artifacts
+android/app/src/main/assets/
