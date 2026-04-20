@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, RefreshControl,
-  ActivityIndicator, Platform, TouchableOpacity, Alert,
+  ActivityIndicator, Platform, TouchableOpacity, Alert, Linking,
 } from 'react-native';
 import { api } from '../services/api';
 import { useTheme } from '../theme';
+
+const NODE_REGISTRATION_URL = 'https://watch.westshoredrone.com/nodes';
 
 export default function NodesScreen() {
   const colors = useTheme();
@@ -139,7 +141,17 @@ export default function NodesScreen() {
       {nodes.length === 0 && (
         <View style={s.empty}>
           <Text style={s.emptyText}>NO NODES</Text>
-          <Text style={s.emptyHint}>Nodes appear here once they check in via heartbeat</Text>
+          <Text style={s.emptyHint}>Register a node to start detecting drones</Text>
+          <TouchableOpacity
+            style={s.registerBtn}
+            onPress={() => Linking.openURL(NODE_REGISTRATION_URL)}
+            activeOpacity={0.8}
+          >
+            <Text style={s.registerBtnText}>REGISTER A NODE →</Text>
+          </TouchableOpacity>
+          <Text style={[s.emptyHint, { marginTop: 14, fontSize: 10 }]}>
+            watch.westshoredrone.com/nodes
+          </Text>
         </View>
       )}
     </ScrollView>
@@ -203,9 +215,20 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     fontSize: 10, fontWeight: '600', letterSpacing: 1,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
+  empty: { alignItems: 'center', paddingTop: 60 },
   emptyText: {
     color: c.textMuted, fontSize: 12, letterSpacing: 3,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
   emptyHint: { color: c.textDim, fontSize: 11, marginTop: 8, textAlign: 'center' },
+  registerBtn: {
+    marginTop: 20,
+    borderWidth: 1, borderColor: c.cyan, borderRadius: 8,
+    paddingHorizontal: 18, paddingVertical: 12,
+    backgroundColor: 'rgba(0,212,255,0.08)',
+  },
+  registerBtnText: {
+    color: c.cyan, fontSize: 11, fontWeight: '700', letterSpacing: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
 });

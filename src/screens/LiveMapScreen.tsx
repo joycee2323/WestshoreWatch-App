@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  View, Text, TextInput, StyleSheet, TouchableOpacity, Platform, PermissionsAndroid, AppState,
+  View, Text, TextInput, StyleSheet, TouchableOpacity, Platform, PermissionsAndroid, AppState, Linking,
 } from 'react-native';
 import MapboxGL from '@rnmapbox/maps';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -19,6 +19,7 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_STALE_MS = 60_000;
 const HEARTBEAT_FORGET_MS = 300_000;
 const NICKNAMES_STORAGE_KEY = 'drone_nicknames';
+const NODE_REGISTRATION_URL = 'https://watch.westshoredrone.com/nodes';
 
 const loggedMissingHeartbeatNodes = new Set<string>();
 // Last time we saw a BLE advertisement from each node (keyed by raw uppercased
@@ -73,6 +74,19 @@ export default function LiveMapScreen() {
   const [nodes, setNodes] = useState<any[]>([]);
   const nodesRef = useRef<any[]>([]);
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+  // `nodes` above is scoped to the active deployment; this tracks whether the
+  // user has registered ANY node across their account (drives the empty-state
+  // banner for users who skipped onboarding).
+  const [userHasAnyNode, setUserHasAnyNode] = useState<boolean | null>(null);
+
+  const checkUserNodes = useCallback(async () => {
+    try {
+      const all = await api.getNodes();
+      setUserHasAnyNode(Array.isArray(all) && all.length > 0);
+    } catch (err) {
+      console.warn('Failed to check user nodes:', err);
+    }
+  }, []);
 
   const [selectedDrone, setSelectedDrone] = useState<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -166,6 +180,7 @@ export default function LiveMapScreen() {
   useEffect(() => {
     setMode('backend');
     void fetchNodeRegistry();
+    void checkUserNodes();
     requestPermissions().then(() => {
       loadActiveDeployment();
       startBleScanning(
@@ -191,7 +206,8 @@ export default function LiveMapScreen() {
   useFocusEffect(
     useCallback(() => {
       void refetchNodes();
-    }, [refetchNodes])
+      void checkUserNodes();
+    }, [refetchNodes, checkUserNodes])
   );
 
   // Refetch nodes when the app returns from background to foreground — the
@@ -460,6 +476,21 @@ export default function LiveMapScreen() {
         </View>
       </View>
 
+      {/* No-nodes prompt for users who skipped onboarding */}
+      {userHasAnyNode === false && (
+        <TouchableOpacity
+          style={s.noNodesBanner}
+          onPress={() => Linking.openURL(NODE_REGISTRATION_URL)}
+          activeOpacity={0.8}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={s.noNodesTitle}>ADD YOUR FIRST NODE</Text>
+            <Text style={s.noNodesSub}>Register a node to start detecting drones</Text>
+          </View>
+          <Text style={s.noNodesArrow}>→</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Selected drone sheet */}
       {selectedDrone && (() => {
         // Live lookup so the panel reflects real-time updates, not a stale snapshot
@@ -561,6 +592,25 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     width: 26, height: 26, borderRadius: 13, borderWidth: 2,
     backgroundColor: 'rgba(0,255,136,0.1)',
     alignItems: 'center', justifyContent: 'center',
+  },
+  noNodesBanner: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 120 : 104,
+    left: 16, right: 16,
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 10, paddingHorizontal: 14,
+    borderRadius: 10, borderWidth: 1, borderColor: c.cyan,
+    backgroundColor: 'rgba(0,212,255,0.12)',
+  },
+  noNodesTitle: {
+    color: c.cyan, fontSize: 11, fontWeight: '700', letterSpacing: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  noNodesSub: {
+    color: c.textDim, fontSize: 10, marginTop: 2,
+  },
+  noNodesArrow: {
+    color: c.cyan, fontSize: 18, fontWeight: '700', marginLeft: 12,
   },
   detailSheet: {
     position: 'absolute', bottom: 0, left: 0, right: 0,

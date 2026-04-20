@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useColorScheme, Platform, View, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useAuthStore } from '../store/authStore';
 import { useTheme } from '../theme';
@@ -59,16 +60,23 @@ function AuthTabs() {
   );
 }
 
+const ONBOARDING_SKIPPED_KEY = 'onboarding_node_skipped';
+
 function MainGate() {
   const colors = useTheme();
   const [hasNodes, setHasNodes] = useState<boolean | null>(null);
+  const [skipped, setSkipped] = useState<boolean | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const checkNodes = useCallback(async () => {
     setRefreshing(true);
     try {
       const nodes = await api.getNodes();
-      setHasNodes(Array.isArray(nodes) && nodes.length > 0);
+      const has = Array.isArray(nodes) && nodes.length > 0;
+      setHasNodes(has);
+      if (has) {
+        AsyncStorage.removeItem(ONBOARDING_SKIPPED_KEY).catch(() => {});
+      }
     } catch (err) {
       console.warn('Failed to check nodes:', err);
       setHasNodes(false);
@@ -77,9 +85,21 @@ function MainGate() {
     }
   }, []);
 
-  useEffect(() => { checkNodes(); }, [checkNodes]);
+  useEffect(() => {
+    AsyncStorage.getItem(ONBOARDING_SKIPPED_KEY)
+      .then(v => setSkipped(v === '1'))
+      .catch(() => setSkipped(false));
+    checkNodes();
+  }, [checkNodes]);
 
-  if (hasNodes === null) {
+  const handleSkip = useCallback(() => {
+    AsyncStorage.setItem(ONBOARDING_SKIPPED_KEY, '1').catch(err =>
+      console.warn('Failed to persist onboarding skip:', err)
+    );
+    setSkipped(true);
+  }, []);
+
+  if (hasNodes === null || skipped === null) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator color={colors.cyan} size="large" />
@@ -87,8 +107,8 @@ function MainGate() {
     );
   }
 
-  if (!hasNodes) {
-    return <OnboardingScreen onRefresh={checkNodes} refreshing={refreshing} />;
+  if (!hasNodes && !skipped) {
+    return <OnboardingScreen onRefresh={checkNodes} refreshing={refreshing} onSkip={handleSkip} />;
   }
 
   return <AuthTabs />;

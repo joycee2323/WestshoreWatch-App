@@ -14,9 +14,10 @@ const DASHBOARD_URL = 'https://watch.westshoredrone.com/nodes';
 interface Props {
   onRefresh: () => void;
   refreshing: boolean;
+  onSkip: () => void;
 }
 
-export default function OnboardingScreen({ onRefresh, refreshing }: Props) {
+export default function OnboardingScreen({ onRefresh, refreshing, onSkip }: Props) {
   const colors = useTheme();
   const insets = useSafeAreaInsets();
   const logout = useAuthStore(st => st.logout);
@@ -86,6 +87,15 @@ export default function OnboardingScreen({ onRefresh, refreshing }: Props) {
         >
           <Text style={s.secondaryText}>I already have a node →</Text>
           <Text style={s.secondarySub}>Register it at watch.westshoredrone.com/nodes</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={s.skipLink}
+          onPress={onSkip}
+          activeOpacity={0.6}
+        >
+          <Text style={s.skipText}>SKIP FOR NOW</Text>
+          <Text style={s.skipSub}>I don't have a node yet — explore the app</Text>
         </TouchableOpacity>
       </View>
 
@@ -161,6 +171,16 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   },
   secondaryText: { color: c.cyan, fontSize: 13, fontWeight: '600' },
   secondarySub: { color: c.textMuted, fontSize: 11, marginTop: 4 },
+  skipLink: {
+    marginTop: 16, alignItems: 'center',
+    paddingVertical: 10,
+    borderTopWidth: 1, borderTopColor: c.border,
+  },
+  skipText: {
+    color: c.textDim, fontSize: 11, fontWeight: '700', letterSpacing: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  skipSub: { color: c.textMuted, fontSize: 10, marginTop: 4 },
   hint: {
     color: c.textMuted, fontSize: 10, letterSpacing: 1,
     textAlign: 'center', marginTop: 32,
