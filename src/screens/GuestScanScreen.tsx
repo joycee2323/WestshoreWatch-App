@@ -7,6 +7,7 @@ import MapboxGL from '@rnmapbox/maps';
 import { useDroneStore, DroneEntry } from '../store/droneStore';
 import { startBleScanning, stopBleScanning } from '../services/bleScanner';
 import { useTheme, getDroneColor } from '../theme';
+import KeepScreenOnToggle from '../components/KeepScreenOnToggle';
 import * as Location from 'expo-location';
 import { OP_STATUS_AIRBORNE } from '../services/odidParser';
 
@@ -35,7 +36,6 @@ export default function GuestScanScreen({ navigation }: any) {
   const colors = useTheme();
   const { bleDrones, updateBleDrone, nearbyNodes } = useDroneStore();
   const updateNearbyNode = useDroneStore(s => s.updateNearbyNode);
-  const [scanning, setScanning] = useState(false);
   const [selectedDrone, setSelectedDrone] = useState<DroneEntry | null>(null);
   const [locationGranted, setLocationGranted] = useState(false);
   const cameraRef = useRef<MapboxGL.Camera>(null);
@@ -62,14 +62,12 @@ export default function GuestScanScreen({ navigation }: any) {
   };
 
   const startScanning = async () => {
-    setScanning(true);
     try {
       await startBleScanning(
         (det) => { if (det.uasId) updateBleDrone(det.uasId, det); },
         (mac, rssi) => { updateNearbyNode(mac, rssi); }
       );
     } catch (err: any) {
-      setScanning(false);
       Alert.alert('Bluetooth Error', err.message);
     }
   };
@@ -133,18 +131,18 @@ export default function GuestScanScreen({ navigation }: any) {
       <View style={s.topBar}>
         <View style={s.topLeft}>
           <Text style={s.appName}>WESTSHORE WATCH</Text>
-          <View style={[s.scanBadge, scanning && s.scanActive]}>
-            <Text style={s.scanText}>{scanning ? '● SCANNING' : '○ IDLE'}</Text>
-          </View>
           {Object.keys(nearbyNodes).length > 0 && (
             <View style={s.nodeBadge}>
               <Text style={s.nodeText}>📡 NODE</Text>
             </View>
           )}
         </View>
-        <TouchableOpacity style={s.loginBtn} onPress={() => navigation.navigate('Login')}>
-          <Text style={s.loginBtnText}>SIGN IN</Text>
-        </TouchableOpacity>
+        <View style={s.topRight}>
+          <KeepScreenOnToggle keepAwakeTag="guest-scan" />
+          <TouchableOpacity style={s.loginBtn} onPress={() => navigation.navigate('Login')}>
+            <Text style={s.loginBtnText}>SIGN IN</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Drone count */}
@@ -232,17 +230,13 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     backgroundColor: 'rgba(10,14,26,0.85)',
   },
   topLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  topRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   appName: {
-    color: '#00d4ff', fontSize: 14, fontWeight: '700', letterSpacing: 4,
+    color: '#00d4ff', fontSize: 11, fontWeight: '700', letterSpacing: 2,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
   nodeBadge: { backgroundColor: 'rgba(0,255,136,0.15)', borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: 'rgba(0,255,136,0.3)' },
   nodeText: {
-    color: '#00ff88', fontSize: 9, letterSpacing: 1,
-    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
-  },
-  scanActive: { backgroundColor: 'rgba(0,255,136,0.15)' },
-  scanText: {
     color: '#00ff88', fontSize: 9, letterSpacing: 1,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },

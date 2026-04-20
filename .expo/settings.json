@@ -1,3 +1,6 @@
 {
-  "urlRandomness": "Gl-vb7k"
+  "urlRandomness": "Gl-vb7k",
+  "dev": true,
+  "minify": false,
+  "https": false
 }

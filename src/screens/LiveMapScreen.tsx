@@ -5,8 +5,7 @@ import {
 import MapboxGL from '@rnmapbox/maps';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
-import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import KeepScreenOnToggle from '../components/KeepScreenOnToggle';
 import { useDroneStore } from '../store/droneStore';
 import { useAuthStore } from '../store/authStore';
 import { createWebSocket, api } from '../services/api';
@@ -20,8 +19,6 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_STALE_MS = 60_000;
 const HEARTBEAT_FORGET_MS = 300_000;
 const NICKNAMES_STORAGE_KEY = 'drone_nicknames';
-const KEEP_SCREEN_ON_STORAGE_KEY = 'live_map_keep_screen_on';
-const KEEP_AWAKE_TAG = 'live-map';
 
 const loggedMissingHeartbeatNodes = new Set<string>();
 // Last time we saw a BLE advertisement from each node (keyed by raw uppercased
@@ -62,24 +59,6 @@ export default function LiveMapScreen() {
     AsyncStorage.setItem(NICKNAMES_STORAGE_KEY, JSON.stringify(nicknames))
       .catch(err => console.warn('Failed to save nicknames:', err));
   }, [nicknames]);
-
-  const [keepScreenOn, setKeepScreenOn] = useState(false);
-  const keepScreenOnLoaded = useRef(false);
-
-  useEffect(() => {
-    AsyncStorage.getItem(KEEP_SCREEN_ON_STORAGE_KEY)
-      .then(raw => {
-        if (raw === 'true') setKeepScreenOn(true);
-      })
-      .catch(err => console.warn('Failed to load keepScreenOn:', err))
-      .finally(() => { keepScreenOnLoaded.current = true; });
-  }, []);
-
-  useEffect(() => {
-    if (!keepScreenOnLoaded.current) return;
-    AsyncStorage.setItem(KEEP_SCREEN_ON_STORAGE_KEY, keepScreenOn ? 'true' : 'false')
-      .catch(err => console.warn('Failed to save keepScreenOn:', err));
-  }, [keepScreenOn]);
 
   // Actions are stable references — selecting them individually avoids
   // subscribing to unrelated state changes.
@@ -213,17 +192,6 @@ export default function LiveMapScreen() {
     useCallback(() => {
       void refetchNodes();
     }, [refetchNodes])
-  );
-
-  // Keep the device screen awake while this screen is focused, if the user
-  // has toggled the option on. Deactivates on blur or when toggled off.
-  useFocusEffect(
-    useCallback(() => {
-      if (keepScreenOn) {
-        void activateKeepAwakeAsync(KEEP_AWAKE_TAG);
-      }
-      return () => { deactivateKeepAwake(KEEP_AWAKE_TAG); };
-    }, [keepScreenOn])
   );
 
   // Refetch nodes when the app returns from background to foreground — the
@@ -477,19 +445,7 @@ export default function LiveMapScreen() {
             <Text style={s.nodeNearby}>📡 NODE IN RANGE</Text>
           )}
         </View>
-        <TouchableOpacity
-          onPress={() => setKeepScreenOn(prev => !prev)}
-          accessibilityLabel="Keep screen on"
-          accessibilityRole="switch"
-          accessibilityState={{ checked: keepScreenOn }}
-          style={[s.keepAwakeBtn, keepScreenOn && s.keepAwakeBtnActive]}
-        >
-          <Ionicons
-            name={keepScreenOn ? 'sunny' : 'sunny-outline'}
-            size={20}
-            color={keepScreenOn ? colors.green : colors.textMuted}
-          />
-        </TouchableOpacity>
+        <KeepScreenOnToggle keepAwakeTag="live-map" />
         <View style={s.statsRow}>
           <View style={s.stat}>
             <Text style={s.statVal}>{droneList.length}</Text>
@@ -584,7 +540,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     backgroundColor: 'rgba(10,14,26,0.85)',
   },
   appName: {
-    color: c.cyan, fontSize: 14, fontWeight: '700', letterSpacing: 4,
+    color: c.cyan, fontSize: 11, fontWeight: '700', letterSpacing: 2,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
   nodeNearby: {
@@ -592,18 +548,6 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
   statsRow: { flexDirection: 'row', gap: 20 },
-  keepAwakeBtn: {
-    width: 34, height: 34,
-    alignItems: 'center', justifyContent: 'center',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-    backgroundColor: 'rgba(255,255,255,0.03)',
-  },
-  keepAwakeBtnActive: {
-    borderColor: 'rgba(0,255,136,0.4)',
-    backgroundColor: 'rgba(0,255,136,0.12)',
-  },
   stat: { alignItems: 'center' },
   statVal: {
     color: c.cyan, fontSize: 16, fontWeight: '700',
