@@ -31,10 +31,25 @@ async function request(
   return res.json();
 }
 
+function getClientTimezone(): string | undefined {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return tz && typeof tz === 'string' ? tz : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export const api = {
   // Auth
-  login: (email: string, password: string) =>
-    request('POST', '/auth/login', { email, password }),
+  login: (email: string, password: string) => {
+    const timezone = getClientTimezone();
+    return request('POST', '/auth/login', {
+      email,
+      password,
+      ...(timezone ? { timezone } : {}),
+    });
+  },
   register: (data: { name: string; email: string; org_name: string; password: string }) =>
     request('POST', '/auth/register', data),
   forgotPassword: (email: string) =>
