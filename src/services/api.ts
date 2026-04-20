@@ -57,9 +57,14 @@ export const api = {
 
   // Deployments
   getDeployments: () => request('GET', '/deployments'),
-  createDeployment: (name: string) => request('POST', '/deployments', { name }),
+  createDeployment: (name: string, scheduledFor?: string) => {
+    const body: any = { name };
+    if (scheduledFor) body.scheduled_for = scheduledFor;
+    return request('POST', '/deployments', body);
+  },
   closeDeployment: (id: string) => request('POST', `/deployments/${id}/close`),
   extendDeployment: (id: string) => request('POST', `/deployments/${id}/extend`),
+  cancelDeployment: (id: string) => request('POST', `/deployments/${id}/cancel`),
   deleteDeployment: (id: string) => request('DELETE', `/deployments/${id}`),
 
   // Nodes
