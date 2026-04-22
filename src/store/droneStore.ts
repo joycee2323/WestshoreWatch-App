@@ -25,15 +25,12 @@ interface DroneStore {
   bleDrones: Record<string, DroneEntry>;
   // Backend-synced drones (authenticated mode)
   backendDrones: Record<string, any>;
-  // Which source to display
-  mode: 'ble' | 'backend';
 
   updateBleDrone: (uasId: string, data: Partial<OdidDetection> & { rssi: number }) => void;
   removeDrone: (uasId: string) => void;
   clearBleDrones: () => void;
   setBackendDrones: (drones: Record<string, any>) => void;
   updateBackendDrone: (drone: any) => void;
-  setMode: (mode: 'ble' | 'backend') => void;
   nearbyNodes: Record<string, { mac: string; rssi: number; lastSeen: number }>;
   updateNearbyNode: (mac: string, rssi: number) => void;
 }
@@ -41,7 +38,6 @@ interface DroneStore {
 export const useDroneStore = create<DroneStore>((set) => ({
   bleDrones: {},
   backendDrones: {},
-  mode: 'ble',
   nearbyNodes: {},
 
   updateBleDrone: (uasId, data) => {
@@ -98,8 +94,6 @@ export const useDroneStore = create<DroneStore>((set) => ({
   updateBackendDrone: (drone) => set(state => ({
     backendDrones: { ...state.backendDrones, [drone.uas_id]: drone },
   })),
-
-  setMode: (mode) => set({ mode }),
 
   updateNearbyNode: (mac, rssi) => {
     set(state => ({

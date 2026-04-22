@@ -30,6 +30,10 @@ const lastBleSeenAt = new Map<string, number>();
 // MACs whose heartbeat is currently in the "skipping (stale)" state, so the
 // skip log fires once on the fresh→stale transition rather than every tick.
 const currentlySkippingHeartbeats = new Set<string>();
+// uasIds we've already logged a BLE-skip message for — keeps logcat readable
+// when the same drone is seen thousands of times. Bounded by distinct drones
+// the app sees per session, which is small in practice.
+const loggedSkippedUasIds = new Set<string>();
 
 export default function LiveMapScreen() {
   const colors = useTheme();
@@ -37,7 +41,6 @@ export default function LiveMapScreen() {
   // Subscribe to render-relevant state with individual selectors so that
   // high-frequency BLE updates to nearbyNodes don't re-render the whole screen.
   const backendDrones = useDroneStore(s => s.backendDrones);
-  const bleDrones = useDroneStore(s => s.bleDrones);
   const nearbyNodeCount = useDroneStore(s => Object.keys(s.nearbyNodes).length);
 
   const [nicknames, setNicknames] = useState<Record<string, string>>({});
@@ -66,7 +69,6 @@ export default function LiveMapScreen() {
   const updateBackendDrone = useDroneStore(s => s.updateBackendDrone);
   const updateBleDrone = useDroneStore(s => s.updateBleDrone);
   const updateNearbyNode = useDroneStore(s => s.updateNearbyNode);
-  const setMode = useDroneStore(s => s.setMode);
 
   const [activeDeployment, setActiveDeployment] = useState<any>(null);
   const activeDeploymentRef = useRef<any>(null);
@@ -95,8 +97,7 @@ export default function LiveMapScreen() {
 
   const heartbeatTimers = useRef<Map<string, any>>(new Map());
 
-  const allDrones = { ...bleDrones, ...backendDrones };
-  const droneList = Object.values(allDrones);
+  const droneList = Object.values(backendDrones);
 
   const sendHeartbeat = useCallback(async (mac: string) => {
     const deviceId = getDeviceIdFromMac(mac);
@@ -178,13 +179,25 @@ export default function LiveMapScreen() {
   }, [refetchNodes]);
 
   useEffect(() => {
-    setMode('backend');
     void fetchNodeRegistry();
     void checkUserNodes();
     requestPermissions().then(() => {
       loadActiveDeployment();
       startBleScanning(
-        det => { if (det.uasId) updateBleDrone(det.uasId, det); },
+        det => {
+          // When a deployment is active, positions come from the backend's
+          // coalesced WS stream. Routing raw BLE parses into the store here
+          // would flicker the marker, since nodes rebroadcast each drone's
+          // ODID independently and the phone receives ~5 Hz per node.
+          if (activeDeploymentRef.current) {
+            if (det.uasId && !loggedSkippedUasIds.has(det.uasId)) {
+              loggedSkippedUasIds.add(det.uasId);
+              console.info(`[livemap] skipping BLE write for uasId=${det.uasId} — backend-authoritative`);
+            }
+            return;
+          }
+          if (det.uasId) updateBleDrone(det.uasId, det);
+        },
         (mac, rssi) => {
           updateNearbyNode(mac, rssi);
           lastBleSeenAt.set(mac, Date.now());
