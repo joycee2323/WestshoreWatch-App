@@ -18,6 +18,7 @@ import GuestScanScreen from '../screens/GuestScanScreen';
 import LiveMapScreen from '../screens/LiveMapScreen';
 import DeploymentsScreen from '../screens/DeploymentsScreen';
 import NodesScreen from '../screens/NodesScreen';
+import AddNodeScreen from '../screens/AddNodeScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 
 const Stack = createNativeStackNavigator();
@@ -137,7 +138,14 @@ export default function AppNavigator() {
     <NavigationContainer theme={navTheme}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {token ? (
-          <Stack.Screen name="Main" component={MainGate} />
+          <>
+            <Stack.Screen name="Main" component={MainGate} />
+            <Stack.Screen
+              name="AddNode"
+              component={AddNodeScreen}
+              options={{ headerShown: true, title: 'Add Node', presentation: 'modal' }}
+            />
+          </>
         ) : (
           <>
             <Stack.Screen name="Login" component={LoginScreen} />

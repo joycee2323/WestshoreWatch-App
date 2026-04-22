@@ -3,13 +3,13 @@ import {
   View, Text, StyleSheet, TouchableOpacity,
   ScrollView, RefreshControl, Platform, Linking, Alert,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
 import { useAuthStore } from '../store/authStore';
 
 const X1_URL = 'https://westshoredrone.com/watch-x1/';
 const M1_URL = 'https://westshoredrone.com/watch-m1/';
-const DASHBOARD_URL = 'https://watch.westshoredrone.com/nodes';
 
 interface Props {
   onRefresh: () => void;
@@ -20,6 +20,7 @@ interface Props {
 export default function OnboardingScreen({ onRefresh, refreshing, onSkip }: Props) {
   const colors = useTheme();
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation<any>();
   const logout = useAuthStore(st => st.logout);
   const s = styles(colors);
 
@@ -60,15 +61,24 @@ export default function OnboardingScreen({ onRefresh, refreshing, onSkip }: Prop
           to your dashboard in real time.
         </Text>
 
-        <Text style={s.chooseLabel}>Choose your Westshore Watch node:</Text>
-
         <TouchableOpacity
           style={s.primaryBtn}
+          onPress={() => navigation.navigate('AddNode')}
+          activeOpacity={0.8}
+        >
+          <Text style={s.primaryBtnText}>SCAN FOR NEARBY NODE</Text>
+          <Text style={s.primaryBtnPrice}>→</Text>
+        </TouchableOpacity>
+
+        <Text style={[s.chooseLabel, { marginTop: 24 }]}>Don't have a node yet?</Text>
+
+        <TouchableOpacity
+          style={s.secondaryBtn}
           onPress={() => Linking.openURL(X1_URL)}
           activeOpacity={0.8}
         >
-          <Text style={s.primaryBtnText}>GET WESTSHORE WATCH X1</Text>
-          <Text style={s.primaryBtnPrice}>$799</Text>
+          <Text style={s.secondaryBtnText}>GET WESTSHORE WATCH X1</Text>
+          <Text style={s.secondaryBtnPrice}>$799</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -78,15 +88,6 @@ export default function OnboardingScreen({ onRefresh, refreshing, onSkip }: Prop
         >
           <Text style={s.secondaryBtnText}>GET WESTSHORE WATCH M1</Text>
           <Text style={s.secondaryBtnPrice}>$399</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={s.secondaryLink}
-          onPress={() => Linking.openURL(DASHBOARD_URL)}
-          activeOpacity={0.6}
-        >
-          <Text style={s.secondaryText}>I already have a node →</Text>
-          <Text style={s.secondarySub}>Register it at watch.westshoredrone.com/nodes</Text>
         </TouchableOpacity>
 
         <TouchableOpacity

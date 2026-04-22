@@ -44,6 +44,14 @@ class BLEScannerService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var scanning = false
 
+    @Volatile private var uploader: DetectionUploader? = null
+
+    // sourceMac (uppercased) -> most recent uasId + when BasicId last arrived.
+    // Mirrors the mergeBySource TTL logic from src/services/bleScanner.ts so we
+    // can attribute Location/System messages that don't carry their own uasId.
+    private data class Attribution(val uasId: String, val lastBasicIdAtMs: Long)
+    private val attributionBySource = java.util.concurrent.ConcurrentHashMap<String, Attribution>()
+
     @Volatile
     private var lastPacketElapsedMs: Long = 0L
 
@@ -68,6 +76,16 @@ class BLEScannerService : Service() {
             handlerThread = HandlerThread("BLEScannerService-thread").also { it.start() }
             handler = Handler(handlerThread!!.looper)
         }
+        if (uploader == null) {
+            val h = handler
+            if (h != null) {
+                uploader = DetectionUploader(h).also {
+                    it.configure(UploadConfig.baseUrl, UploadConfig.authToken)
+                    it.start()
+                }
+                activeInstance = this
+            }
+        }
         acquireWakeLockIfNeeded()
     }
 
@@ -77,6 +95,10 @@ class BLEScannerService : Service() {
             ACTION_STOP -> {
                 Log.d(TAG, "ACTION_STOP — stopping scan, foreground, and self")
                 stopScan()
+                // Best-effort flush of any buffered detections before teardown.
+                uploader?.flushBlocking(3_000L)
+                uploader?.stop()
+                uploader = null
                 stopForegroundCompat()
                 stopSelf()
                 return START_NOT_STICKY
@@ -92,6 +114,9 @@ class BLEScannerService : Service() {
     override fun onDestroy() {
         Log.d(TAG, "onDestroy")
         stopScan()
+        uploader?.stop()
+        uploader = null
+        if (activeInstance === this) activeInstance = null
         stopForegroundCompat()
         releaseWakeLock()
         handlerThread?.quitSafely()
@@ -173,10 +198,22 @@ class BLEScannerService : Service() {
             }
         }
 
+        // Two filters, OR-ed by the BLE scanner:
+        //   1. ODID service data — drone detections (and Westshore Watch relays).
+        //   2. Manufacturer company 0x08FE — Westshore Watch identity advertiser
+        //      (handle 3 in firmware/ble_relay.c). Always on, so unclaimed nodes
+        //      with no drones nearby are still discoverable for the claim flow.
         val filters = listOf(
             ScanFilter.Builder()
                 .setServiceData(
                     ParcelUuid.fromString(ODID_SERVICE_UUID),
+                    byteArrayOf(),
+                    byteArrayOf()
+                )
+                .build(),
+            ScanFilter.Builder()
+                .setManufacturerData(
+                    WESTSHORE_COMPANY_ID,
                     byteArrayOf(),
                     byteArrayOf()
                 )
@@ -276,6 +313,64 @@ class BLEScannerService : Service() {
         }
 
         emitEvent(EVENT_SCAN_RESULT, map)
+
+        // Now do the Kotlin-side upload path. Screen-off Doze suspends the JS
+        // runtime, so parsing + POSTing here keeps detections flowing even
+        // when the JS listener is dormant.
+        maybeEnqueueForUpload(mac.uppercase(), record?.serviceData)
+    }
+
+    private fun maybeEnqueueForUpload(sourceMacUpper: String, serviceData: Map<android.os.ParcelUuid, ByteArray>?) {
+        val up = uploader ?: return
+        if (serviceData == null) return
+        val odidBytes = serviceData.entries.firstOrNull {
+            it.key.uuid.toString().equals(ODID_SERVICE_UUID, ignoreCase = true)
+        }?.value ?: return
+
+        val parsed = OdidParser.parseServiceData(odidBytes) ?: return
+        if (parsed.uasId == "DroneScout Bridge") return
+
+        val now = SystemClock.elapsedRealtime()
+
+        // Attribute the uasId: BasicId/Pack carry one and refresh the TTL;
+        // Location/System inherit the most recent one on this source MAC.
+        val effectiveUasId: String? = if (parsed.uasId != null) {
+            attributionBySource[sourceMacUpper] = Attribution(parsed.uasId, now)
+            // TODO(notifyNewDrone): port src/services/droneNotifier.ts so
+            // first-sighting notifications fire when screen-off. Hook point:
+            // compare against prior attribution here and post a native
+            // notification for new uasIds.
+            parsed.uasId
+        } else {
+            val prev = attributionBySource[sourceMacUpper]
+            if (prev != null && (now - prev.lastBasicIdAtMs) <= ATTRIBUTION_TTL_MS) prev.uasId else null
+        }
+
+        if (effectiveUasId == null) return
+        if (!isWestshoreWatchNode(sourceMacUpper)) return
+
+        val lat = parsed.lat ?: return
+        val lon = parsed.lon ?: return
+        if (lat == 0.0 && lon == 0.0) return
+
+        val deviceId = sourceMacUpper.replace(":", "").replace("-", "")
+        up.enqueue(
+            deviceId,
+            DetectionUploader.DroneRecord(
+                id = effectiveUasId,
+                lat = lat,
+                lon = lon,
+                alt = parsed.altGeo,
+                spd = parsed.speedHoriz,
+                hdg = parsed.heading,
+                opLat = parsed.opLat,
+                opLon = parsed.opLon,
+            ),
+        )
+    }
+
+    private fun isWestshoreWatchNode(macUpper: String): Boolean {
+        return macUpper.startsWith("98:A3:16:7D") || macUpper.startsWith("38:44:BE")
     }
 
     private fun emitEvent(name: String, payload: WritableMap) {
@@ -365,6 +460,11 @@ class BLEScannerService : Service() {
         const val ACTION_STOP = "com.westshoredrone.watch.action.STOP_BLE"
         const val EVENT_SCAN_RESULT = "BLEScanResult"
         private const val ODID_SERVICE_UUID = "0000FFFA-0000-1000-8000-00805F9B34FB"
+        // Westshore Watch identity advertiser company ID (handle 3 in
+        // firmware/ble_relay.c, payload [MAC(6)][api_key prefix]). Used purely
+        // as a discovery signature here — the app does not read the api_key
+        // bytes.
+        private const val WESTSHORE_COMPANY_ID = 0x08FE
         private const val CHANNEL_ID = "westshore_ble_scanner_v2"
         private const val NOTIFICATION_ID = 4471
         private const val WAKE_LOCK_TAG = "WestshoreWatch::BLEScannerService"
@@ -372,5 +472,18 @@ class BLEScannerService : Service() {
         private const val WATCHDOG_SILENCE_THRESHOLD_MS = 30_000L
         // How often the watchdog checks for silence.
         private const val WATCHDOG_CHECK_INTERVAL_MS = 5_000L
+        // How long a BasicId attribution is reused for follow-up Location/System
+        // messages without their own uasId. Mirrors bleScanner.ts.
+        private const val ATTRIBUTION_TTL_MS = 60_000L
+
+        // Live reference to the running service so the native module can push
+        // config updates into its uploader without restarting the service.
+        @Volatile private var activeInstance: BLEScannerService? = null
+
+        fun applyUploadConfig(baseUrl: String?, authToken: String?) {
+            UploadConfig.baseUrl = baseUrl ?: UploadConfig.baseUrl
+            UploadConfig.authToken = authToken
+            activeInstance?.uploader?.configure(UploadConfig.baseUrl, UploadConfig.authToken)
+        }
     }
 }

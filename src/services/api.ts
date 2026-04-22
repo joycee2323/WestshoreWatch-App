@@ -86,6 +86,12 @@ export const api = {
     }),
   nodeDetections: (deviceId: string, drones: any[]) =>
     request('POST', `/nodes/${encodeURIComponent(deviceId)}/detections`, { drones }),
+  getNodeLimit: () => request('GET', '/nodes/limit'),
+  claimNode: (mac: string, name?: string) => {
+    const body: any = { mac };
+    if (name && name.trim()) body.name = name.trim();
+    return request('POST', '/nodes/claim', body);
+  },
 
   // Detections
   getDetections: (deploymentId: string) =>

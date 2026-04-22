@@ -1,16 +1,32 @@
 import { NativeModules, NativeEventEmitter, Platform, EmitterSubscription } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 import { parseOdidAdvertisement, OdidDetection } from './odidParser';
-import { queueDetection } from './detectionUploader';
 import { notifyNewDrone } from './droneNotifier';
 
 const { BLEScanner } = NativeModules as {
   BLEScanner?: {
     startService: () => Promise<void>;
     stopService: () => Promise<void>;
+    configure: (config: { baseUrl?: string; authToken?: string | null }) => Promise<void>;
     addListener: (eventName: string) => void;
     removeListeners: (count: number) => void;
   };
 };
+
+const UPLOAD_BASE_URL = 'https://api.westshoredrone.com';
+
+// Push the current bearer token into the native uploader. Called on login,
+// logout, token refresh, and right before we start scanning so the Kotlin
+// service can POST detections without waiting for the JS thread (which Doze
+// suspends when the screen is off).
+export async function configureNativeUpload(token: string | null): Promise<void> {
+  if (Platform.OS !== 'android' || !BLEScanner?.configure) return;
+  try {
+    await BLEScanner.configure({ baseUrl: UPLOAD_BASE_URL, authToken: token });
+  } catch (e) {
+    console.warn('[BLE] configureNativeUpload failed:', e);
+  }
+}
 
 interface NativeScanResult {
   mac: string;
@@ -149,32 +165,14 @@ export async function startBleScanning(
       uasId: effectiveUasId,
     });
 
-    // Only queue uploads from Westshore Watch-OUI sources. Drones broadcasting
-    // their own ODID directly aren't node-attributable, so the backend
-    // would 404 on /nodes/<droneMac>/detections. Use the current message's
-    // position fields (parsed) with the attributed uasId.
-    if (
-      isWestshoreWatchNode(sourceMacUpper) &&
-      typeof parsed.lat === 'number' &&
-      typeof parsed.lon === 'number' &&
-      !(parsed.lat === 0 && parsed.lon === 0)
-    ) {
-      queueDetection({
-        sourceMac: sourceMacUpper,
-        uasId: effectiveUasId,
-        lat: parsed.lat,
-        lon: parsed.lon,
-        altGeo: parsed.altGeo,
-        rssi,
-        opLat: parsed.opLat,
-        opLon: parsed.opLon,
-        speedHoriz: parsed.speedHoriz,
-        heading: parsed.heading,
-        timestamp: now,
-      });
-    }
+    // Uploads happen in Kotlin (DetectionUploader) so they survive Doze.
+    // The JS parse/emit path above is retained only for UI state.
   });
 
+  // Prime the native uploader with the current token before scanning so the
+  // first batch inside the service has what it needs to POST.
+  const token = await SecureStore.getItemAsync('auth_token');
+  await configureNativeUpload(token);
   await startForegroundService();
   scanning = true;
 }

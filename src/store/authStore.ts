@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import { api } from '../services/api';
 import { fetchNodes as fetchNodeRegistry, clearCache as clearNodeRegistry } from '../services/nodeRegistry';
+import { configureNativeUpload } from '../services/bleScanner';
 
 interface AuthStore {
   token: string | null;
@@ -23,6 +24,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
       const userJson = await SecureStore.getItemAsync('auth_user');
       if (token && userJson) {
         set({ token, user: JSON.parse(userJson), isLoading: false });
+        void configureNativeUpload(token);
         void fetchNodeRegistry();
       } else {
         set({ isLoading: false });
@@ -37,6 +39,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
     await SecureStore.setItemAsync('auth_token', res.token);
     await SecureStore.setItemAsync('auth_user', JSON.stringify(res.user));
     set({ token: res.token, user: res.user });
+    void configureNativeUpload(res.token);
     void fetchNodeRegistry();
   },
 
@@ -44,6 +47,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
     await SecureStore.deleteItemAsync('auth_token');
     await SecureStore.deleteItemAsync('auth_user');
     clearNodeRegistry();
+    void configureNativeUpload(null);
     set({ token: null, user: null });
   },
 }));

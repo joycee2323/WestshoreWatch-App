@@ -15,6 +15,7 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.ReadableMap
 
 class BLEScannerModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
@@ -74,6 +75,18 @@ class BLEScannerModule(reactContext: ReactApplicationContext) :
             Log.d("BLEScannerModule", "Prompted for ignore-battery-optimizations")
         } catch (t: Throwable) {
             Log.w("BLEScannerModule", "Failed to prompt battery optimization: ${t.message}")
+        }
+    }
+
+    @ReactMethod
+    fun configure(config: ReadableMap, promise: Promise) {
+        try {
+            val baseUrl = if (config.hasKey("baseUrl")) config.getString("baseUrl") else null
+            val authToken = if (config.hasKey("authToken")) config.getString("authToken") else null
+            BLEScannerService.applyUploadConfig(baseUrl, authToken)
+            promise.resolve(null)
+        } catch (e: Throwable) {
+            promise.reject("BLE_CONFIGURE_FAILED", e)
         }
     }
 

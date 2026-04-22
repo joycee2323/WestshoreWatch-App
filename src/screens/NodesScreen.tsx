@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, RefreshControl,
-  ActivityIndicator, Platform, TouchableOpacity, Alert, Linking,
+  ActivityIndicator, Platform, TouchableOpacity, Alert,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { api } from '../services/api';
 import { useTheme } from '../theme';
 
-const NODE_REGISTRATION_URL = 'https://watch.westshoredrone.com/nodes';
-
 export default function NodesScreen() {
   const colors = useTheme();
+  const navigation = useNavigation<any>();
   const [nodes, setNodes] = useState<any[]>([]);
   const [deployments, setDeployments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,6 +59,22 @@ export default function NodesScreen() {
     Alert.alert('Assign to Deployment', `Select a deployment for "${node.name || 'this node'}"`, options);
   };
 
+  const handleAddNode = useCallback(async () => {
+    try {
+      const { at_cap, current, limit, plan } = await api.getNodeLimit();
+      if (at_cap) {
+        Alert.alert(
+          'Node Limit Reached',
+          `Your ${plan} plan allows ${limit} node${limit === 1 ? '' : 's'} (you have ${current}). Upgrade to add more.`,
+        );
+        return;
+      }
+    } catch (err) {
+      console.warn('Failed to check node limit, proceeding anyway:', err);
+    }
+    navigation.navigate('AddNode');
+  }, [navigation]);
+
   const handleUnassign = (node: any) => {
     Alert.alert('Unassign Node', `Remove "${node.name}" from its deployment?`, [
       { text: 'Cancel', style: 'cancel' },
@@ -85,8 +101,17 @@ export default function NodesScreen() {
       contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.cyan} />}
     >
-      <Text style={s.title}>NODES</Text>
-      <Text style={s.subtitle}>{nodes.length} node{nodes.length !== 1 ? 's' : ''} registered</Text>
+      <View style={s.headerRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={s.title}>NODES</Text>
+          <Text style={s.subtitle}>{nodes.length} node{nodes.length !== 1 ? 's' : ''} registered</Text>
+        </View>
+        {nodes.length > 0 && (
+          <TouchableOpacity style={s.addBtn} onPress={handleAddNode} activeOpacity={0.8}>
+            <Text style={s.addBtnText}>+ ADD</Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
       {nodes.map(node => {
         const online = node.status === 'online';
@@ -141,17 +166,14 @@ export default function NodesScreen() {
       {nodes.length === 0 && (
         <View style={s.empty}>
           <Text style={s.emptyText}>NO NODES</Text>
-          <Text style={s.emptyHint}>Register a node to start detecting drones</Text>
+          <Text style={s.emptyHint}>Claim a nearby node to start detecting drones</Text>
           <TouchableOpacity
             style={s.registerBtn}
-            onPress={() => Linking.openURL(NODE_REGISTRATION_URL)}
+            onPress={handleAddNode}
             activeOpacity={0.8}
           >
-            <Text style={s.registerBtnText}>REGISTER A NODE →</Text>
+            <Text style={s.registerBtnText}>SCAN FOR NEARBY NODE →</Text>
           </TouchableOpacity>
-          <Text style={[s.emptyHint, { marginTop: 14, fontSize: 10 }]}>
-            watch.westshoredrone.com/nodes
-          </Text>
         </View>
       )}
     </ScrollView>
@@ -175,6 +197,16 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace', marginBottom: 4,
   },
   subtitle: { color: c.textMuted, fontSize: 11, marginBottom: 16 },
+  headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  addBtn: {
+    borderWidth: 1, borderColor: c.cyan, borderRadius: 6,
+    paddingHorizontal: 12, paddingVertical: 7,
+    backgroundColor: 'rgba(0,212,255,0.08)',
+  },
+  addBtnText: {
+    color: c.cyan, fontSize: 10, fontWeight: '700', letterSpacing: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
   card: {
     backgroundColor: c.surface, borderRadius: 12,
     borderWidth: 1, padding: 16, marginBottom: 12,
