@@ -336,6 +336,8 @@ class BLEScannerService : Service() {
         // Location/System inherit the most recent one on this source MAC.
         val effectiveUasId: String? = if (parsed.uasId != null) {
             attributionBySource[sourceMacUpper] = Attribution(parsed.uasId, now)
+            // [diag] TEMPORARY — revert after triage.
+            Log.i(TAG, "[diag] attrib set sourceMac=$sourceMacUpper uasId=${parsed.uasId}")
             // TODO(notifyNewDrone): port src/services/droneNotifier.ts so
             // first-sighting notifications fire when screen-off. Hook point:
             // compare against prior attribution here and post a native
@@ -343,7 +345,19 @@ class BLEScannerService : Service() {
             parsed.uasId
         } else {
             val prev = attributionBySource[sourceMacUpper]
-            if (prev != null && (now - prev.lastBasicIdAtMs) <= ATTRIBUTION_TTL_MS) prev.uasId else null
+            if (prev != null && (now - prev.lastBasicIdAtMs) <= ATTRIBUTION_TTL_MS) {
+                // [diag] TEMPORARY — revert after triage.
+                Log.i(TAG,
+                    "[diag] attrib inherit sourceMac=$sourceMacUpper -> uasId=${prev.uasId} " +
+                    "lat=${parsed.lat} lon=${parsed.lon}")
+                prev.uasId
+            } else {
+                // [diag] TEMPORARY — revert after triage.
+                Log.i(TAG,
+                    "[diag] attrib miss sourceMac=$sourceMacUpper " +
+                    "lat=${parsed.lat} lon=${parsed.lon} — dropped")
+                null
+            }
         }
 
         if (effectiveUasId == null) return
