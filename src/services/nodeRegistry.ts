@@ -12,6 +12,7 @@ export interface NodeInfo {
   status: string;
   connection_type: string | null;
   firmware_version: string | null;
+  display_order: number | null;
 }
 
 const cache = new Map<string, NodeInfo>();

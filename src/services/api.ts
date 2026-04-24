@@ -74,6 +74,8 @@ export const api = {
     request('PATCH', `/deployments/nodes/${nodeId}/assign`, { deployment_id: deploymentId }),
   unassignNode: (nodeId: string) =>
     request('PATCH', `/deployments/nodes/${nodeId}/assign`, { deployment_id: null }),
+  setNodeDisplayOrder: (nodeId: string, displayOrder: number | null) =>
+    request('PATCH', `/nodes/${nodeId}/display-order`, { display_order: displayOrder }),
   nodeHeartbeat: (
     deviceId: string,
     payload: { last_lat?: number; last_lon?: number; firmware_version?: string; connection_type?: string },

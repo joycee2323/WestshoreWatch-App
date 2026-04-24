@@ -3,9 +3,27 @@ import {
   View, Text, StyleSheet, ScrollView, RefreshControl,
   ActivityIndicator, Platform, TouchableOpacity, Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { api } from '../services/api';
 import { useTheme } from '../theme';
+
+// Sort matches the backend (display_order ASC NULLS LAST, name ASC). This is a
+// client-side safety net — the backend already returns nodes pre-sorted, but
+// local state munging (optimistic reorder swaps) can produce unordered arrays.
+function sortNodes(list: any[]): any[] {
+  return [...list].sort((a, b) => {
+    const ao = a?.display_order;
+    const bo = b?.display_order;
+    const aNull = ao == null;
+    const bNull = bo == null;
+    if (aNull && bNull) return (a?.name || '').localeCompare(b?.name || '');
+    if (aNull) return 1;
+    if (bNull) return -1;
+    if (ao !== bo) return ao - bo;
+    return (a?.name || '').localeCompare(b?.name || '');
+  });
+}
 
 export default function NodesScreen() {
   const colors = useTheme();
@@ -18,7 +36,7 @@ export default function NodesScreen() {
   const load = useCallback(async () => {
     try {
       const allNodes = await api.getNodes();
-      setNodes(allNodes || []);
+      setNodes(sortNodes(allNodes || []));
     } catch (err) {
       console.warn('Failed to load nodes:', err);
     }
@@ -75,6 +93,49 @@ export default function NodesScreen() {
     navigation.navigate('AddNode');
   }, [navigation]);
 
+  // Swap a row with its immediate neighbor (direction: -1 up, +1 down).
+  //
+  // First-time reorder on an org with all-NULL display_order gets a baseline
+  // assignment (10/20/30/…) across all visible rows, matching the dashboard's
+  // convention so web + app don't fight over ordering. Any row whose value
+  // changes — baseline or swap — is PATCHed. Local state is updated
+  // optimistically and rolled back on any PATCH failure.
+  const reorder = async (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= nodes.length) return;
+
+    const prev = nodes;
+    const hasNulls = prev.some(n => n?.display_order == null);
+
+    // Baseline: assign 10/20/30/… to current displayed order if any row is
+    // NULL. Otherwise keep existing values.
+    const working = prev.map((n, i) => ({
+      ...n,
+      display_order: hasNulls ? (i + 1) * 10 : n.display_order,
+    }));
+
+    // Swap display_order between the tapped row and its neighbor.
+    const a = working[index].display_order;
+    const b = working[target].display_order;
+    working[index] = { ...working[index], display_order: b };
+    working[target] = { ...working[target], display_order: a };
+
+    // Anything whose display_order changed relative to prev needs a PATCH.
+    const changed = working.filter((n, i) => n.display_order !== prev[i].display_order);
+    if (changed.length === 0) return;
+
+    setNodes(sortNodes(working));
+
+    try {
+      await Promise.all(
+        changed.map(n => api.setNodeDisplayOrder(n.id, n.display_order as number)),
+      );
+    } catch (err: any) {
+      setNodes(prev);
+      Alert.alert('Reorder Failed', err?.message || 'Could not save node order. Try again.');
+    }
+  };
+
   const handleUnassign = (node: any) => {
     Alert.alert('Unassign Node', `Remove "${node.name}" from its deployment?`, [
       { text: 'Cancel', style: 'cancel' },
@@ -113,10 +174,12 @@ export default function NodesScreen() {
         )}
       </View>
 
-      {nodes.map(node => {
+      {nodes.map((node, index) => {
         const online = node.status === 'online';
         const lastSeen = node.last_seen ? new Date(node.last_seen) : null;
         const ageSec = lastSeen ? Math.round((Date.now() - lastSeen.getTime()) / 1000) : null;
+        const canMoveUp = index > 0;
+        const canMoveDown = index < nodes.length - 1;
         return (
           <View key={node.id} style={[s.card, online ? s.cardOnline : s.cardOffline]}>
             <View style={s.nodeHeader}>
@@ -124,9 +187,39 @@ export default function NodesScreen() {
                 <View style={[s.statusDot, { backgroundColor: online ? colors.green : colors.textMuted }]} />
                 <Text style={s.nodeName}>{node.name || `Node ${node.id.slice(0, 8)}`}</Text>
               </View>
-              <Text style={[s.statusBadge, { color: online ? colors.green : colors.textMuted }]}>
-                {online ? 'ONLINE' : 'OFFLINE'}
-              </Text>
+              <View style={s.headerRight}>
+                <Text style={[s.statusBadge, { color: online ? colors.green : colors.textMuted }]}>
+                  {online ? 'ONLINE' : 'OFFLINE'}
+                </Text>
+                <View style={s.reorderCol}>
+                  <TouchableOpacity
+                    style={[s.reorderBtn, !canMoveUp && s.reorderBtnDisabled]}
+                    onPress={() => reorder(index, -1)}
+                    disabled={!canMoveUp}
+                    hitSlop={{ top: 6, bottom: 2, left: 6, right: 6 }}
+                    accessibilityLabel="Move node up"
+                  >
+                    <Ionicons
+                      name="chevron-up"
+                      size={16}
+                      color={canMoveUp ? colors.cyan : colors.textMuted}
+                    />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[s.reorderBtn, !canMoveDown && s.reorderBtnDisabled]}
+                    onPress={() => reorder(index, 1)}
+                    disabled={!canMoveDown}
+                    hitSlop={{ top: 2, bottom: 6, left: 6, right: 6 }}
+                    accessibilityLabel="Move node down"
+                  >
+                    <Ionicons
+                      name="chevron-down"
+                      size={16}
+                      color={canMoveDown ? colors.cyan : colors.textMuted}
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
 
             <View style={s.nodeDetails}>
@@ -227,6 +320,10 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     fontSize: 9, letterSpacing: 2,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  reorderCol: { flexDirection: 'column', alignItems: 'center' },
+  reorderBtn: { paddingHorizontal: 4, paddingVertical: 1 },
+  reorderBtnDisabled: { opacity: 0.35 },
   nodeDetails: {
     borderTopWidth: 1, borderTopColor: c.border, paddingTop: 10,
   },
