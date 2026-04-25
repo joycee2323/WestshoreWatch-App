@@ -40,12 +40,11 @@ interface NativeScanResult {
 
 async function startForegroundService(): Promise<void> {
   if (Platform.OS !== 'android' || !BLEScanner) return;
-  try {
-    await BLEScanner.startService();
-    console.log('[BLE] Foreground service started successfully');
-  } catch (e) {
-    console.warn('[BLE] Failed to start foreground service:', e);
-  }
+  // Rethrow so callers can surface BLE_SERVICE_NOT_RUNNING (the native side
+  // verifies the service actually came up before resolving). A failure here
+  // means scanning won't work — the user needs to know.
+  await BLEScanner.startService();
+  console.log('[BLE] Foreground service started successfully');
 }
 
 async function stopForegroundService(): Promise<void> {

@@ -2,11 +2,14 @@ package com.westshoredrone.watch
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
@@ -48,9 +51,38 @@ class BLEScannerModule(reactContext: ReactApplicationContext) :
             } else {
                 ctx.startService(intent)
             }
-            promise.resolve(null)
+            // Verify the service actually came up. startForegroundService()
+            // returns synchronously even when the OS later refuses to honor it
+            // (e.g. permissions missing, foreground-service-type mismatch).
+            // Poll ActivityManager once after a short delay so JS gets a real
+            // failure instead of a silently-resolved promise.
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (isServiceRunning(ctx)) {
+                    promise.resolve(null)
+                } else {
+                    Log.w("BLEScannerModule", "BLEScannerService not running 1s after startForegroundService — likely permission/manifest issue")
+                    promise.reject(
+                        "BLE_SERVICE_NOT_RUNNING",
+                        "Foreground service did not start. Check that location and Bluetooth permissions are granted."
+                    )
+                }
+            }, SERVICE_START_VERIFY_DELAY_MS)
         } catch (e: Throwable) {
             promise.reject("BLE_SERVICE_START_FAILED", e)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun isServiceRunning(ctx: Context): Boolean {
+        val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
+        // getRunningServices is deprecated for third-party services on API 26+
+        // but still returns the caller's own services, which is all we need.
+        val target = BLEScannerService::class.java.name
+        return try {
+            am.getRunningServices(Int.MAX_VALUE).any { it.service.className == target }
+        } catch (t: Throwable) {
+            Log.w("BLEScannerModule", "isServiceRunning check failed: ${t.message}")
+            false
         }
     }
 
@@ -113,5 +145,9 @@ class BLEScannerModule(reactContext: ReactApplicationContext) :
         } catch (e: Throwable) {
             promise.reject("BLE_SERVICE_STOP_FAILED", e)
         }
+    }
+
+    companion object {
+        private const val SERVICE_START_VERIFY_DELAY_MS = 1_000L
     }
 }
