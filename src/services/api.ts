@@ -96,6 +96,13 @@ export const api = {
   deleteDrone: (deploymentId: string, uasId: string) =>
     request('DELETE', `/detections/${deploymentId}/${encodeURIComponent(uasId)}`),
 
+  // Drone nicknames (per-org, UAS-ID-keyed; shared across deployments).
+  // Server is authoritative — local state mirrors what the WS broadcasts.
+  getDroneNicknames: (orgId: string) =>
+    request('GET', `/orgs/${orgId}/drone-nicknames`),
+  setDroneNickname: (orgId: string, uasId: string, nickname: string) =>
+    request('PATCH', `/orgs/${orgId}/drones/${encodeURIComponent(uasId)}/nickname`, { nickname }),
+
   // Billing
   getBillingStatus: () => request('GET', '/billing/status'),
   changePassword: (currentPassword: string, newPassword: string) =>

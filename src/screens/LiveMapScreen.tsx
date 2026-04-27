@@ -15,8 +15,11 @@ import { startBleScanning, stopBleScanning } from '../services/bleScanner';
 import { fetchNodes as fetchNodeRegistry, getNodeByMac } from '../services/nodeRegistry';
 import * as Location from 'expo-location';
 
-const NICKNAMES_STORAGE_KEY = 'drone_nicknames';
 const NODE_REGISTRATION_URL = 'https://watch.westshoredrone.com/nodes';
+// Debounce window for nickname edits — avoids hammering the backend on every
+// keystroke while the operator is typing. Saves on settle.
+const NICKNAME_SAVE_DEBOUNCE_MS = 500;
+const NICKNAME_MAX = 30;
 // Tracks whether we've already prompted for ACCESS_BACKGROUND_LOCATION on this
 // install. Android requires the staged flow (foreground first, background
 // later) and will not re-show the system dialog if the user denied it once,
@@ -39,33 +42,37 @@ export default function LiveMapScreen() {
   // high-frequency BLE updates to nearbyNodes don't re-render the whole screen.
   const backendDrones = useDroneStore(s => s.backendDrones);
   const nearbyNodeCount = useDroneStore(s => Object.keys(s.nearbyNodes).length);
-
-  const [nicknames, setNicknames] = useState<Record<string, string>>({});
-  const nicknamesLoaded = useRef(false);
-
-  useEffect(() => {
-    AsyncStorage.getItem(NICKNAMES_STORAGE_KEY)
-      .then(raw => {
-        if (raw) {
-          try { setNicknames(JSON.parse(raw)); }
-          catch (err) { console.warn('Failed to parse stored nicknames:', err); }
-        }
-      })
-      .catch(err => console.warn('Failed to load nicknames:', err))
-      .finally(() => { nicknamesLoaded.current = true; });
-  }, []);
-
-  useEffect(() => {
-    if (!nicknamesLoaded.current) return;
-    AsyncStorage.setItem(NICKNAMES_STORAGE_KEY, JSON.stringify(nicknames))
-      .catch(err => console.warn('Failed to save nicknames:', err));
-  }, [nicknames]);
+  const nicknames = useDroneStore(s => s.nicknamesByUasId);
 
   // Actions are stable references — selecting them individually avoids
   // subscribing to unrelated state changes.
   const updateBackendDrone = useDroneStore(s => s.updateBackendDrone);
   const updateBleDrone = useDroneStore(s => s.updateBleDrone);
   const updateNearbyNode = useDroneStore(s => s.updateNearbyNode);
+  const setNicknames = useDroneStore(s => s.setNicknames);
+  const updateNickname = useDroneStore(s => s.updateNickname);
+
+  // Per-uasId debounce timers keyed so editing several drones in succession
+  // doesn't cancel earlier saves. Cleared on screen unmount.
+  const nicknameSaveTimers = useRef<Record<string, any>>({});
+
+  const orgId = useAuthStore(s => s.user?.org_id);
+
+  // Initial nickname hydrate — once we know the user's org, fetch the
+  // server-side map. Without this, nicknames only appear once a drone is
+  // seen via a detection broadcast.
+  useEffect(() => {
+    if (!orgId) return;
+    api.getDroneNicknames(orgId)
+      .then((rows: any[]) => {
+        const map: Record<string, string> = {};
+        for (const r of rows || []) {
+          if (r?.uas_id && r?.nickname) map[r.uas_id] = r.nickname;
+        }
+        setNicknames(map);
+      })
+      .catch(err => console.warn('[nicknames] initial fetch failed:', err));
+  }, [orgId, setNicknames]);
 
   const [activeDeployment, setActiveDeployment] = useState<any>(null);
   const activeDeploymentRef = useRef<any>(null);
@@ -181,6 +188,10 @@ export default function LiveMapScreen() {
       stopBleScanning();
       if (refetchDebounceTimer.current) clearTimeout(refetchDebounceTimer.current);
       if (backgroundPromptTimer.current) clearTimeout(backgroundPromptTimer.current);
+      // Cancel any pending nickname-save debounces. The pending edits will
+      // be lost; on next mount, the server-side state hydrates via getDroneNicknames.
+      Object.values(nicknameSaveTimers.current).forEach(t => clearTimeout(t));
+      nicknameSaveTimers.current = {};
     };
   }, []);
 
@@ -206,17 +217,26 @@ export default function LiveMapScreen() {
     return () => sub.remove();
   }, [refetchNodes]);
 
+  // Operator typed into the nickname TextInput. Optimistically update the
+  // local store, then debounce a server PATCH. The server's WS broadcast
+  // is the canonical confirmation; if the PATCH fails, the next broadcast
+  // (or detection enrichment) reverts the optimistic value.
   const setNickname = useCallback((uasId: string, name: string) => {
-    setNicknames(prev => {
-      const next = { ...prev };
-      if (name.trim()) {
-        next[uasId] = name.trim();
-      } else {
-        delete next[uasId];
-      }
-      return next;
-    });
-  }, []);
+    if (!uasId) return;
+    const trimmed = name.trim().slice(0, NICKNAME_MAX);
+    updateNickname(uasId, trimmed.length > 0 ? trimmed : null);
+
+    if (!orgId) return;
+    if (nicknameSaveTimers.current[uasId]) {
+      clearTimeout(nicknameSaveTimers.current[uasId]);
+    }
+    nicknameSaveTimers.current[uasId] = setTimeout(() => {
+      delete nicknameSaveTimers.current[uasId];
+      api.setDroneNickname(orgId, uasId, trimmed).catch(err => {
+        console.warn('[nicknames] save failed:', err);
+      });
+    }, NICKNAME_SAVE_DEBOUNCE_MS);
+  }, [orgId, updateNickname]);
 
   const requestPermissions = async () => {
     const locResult = await Location.requestForegroundPermissionsAsync();
@@ -292,6 +312,11 @@ export default function LiveMapScreen() {
       if (msg.type === 'DRONE_UPDATE') {
         msg.drones.forEach((d: any) => updateBackendDrone(d));
       }
+      if (msg.type === 'NICKNAME_UPDATE') {
+        // Backend broadcasts to all clients; ignore other orgs.
+        if (orgId && msg.org_id && msg.org_id !== orgId) return;
+        updateNickname(msg.uas_id, msg.nickname || null);
+      }
       if (msg.type === 'NODE_OFFLINE') {
         setNodes(prev => prev.map((n: any) =>
           n.id === msg.node_id ? { ...n, status: 'offline' } : n
@@ -336,7 +361,7 @@ export default function LiveMapScreen() {
       },
     });
     wsRef.current = ws;
-  }, [scheduleRefetchNodes, updateBackendDrone, refetchNodes]);
+  }, [scheduleRefetchNodes, updateBackendDrone, refetchNodes, orgId, updateNickname]);
 
   const s = styles(colors);
 

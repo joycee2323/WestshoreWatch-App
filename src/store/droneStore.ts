@@ -25,12 +25,19 @@ interface DroneStore {
   bleDrones: Record<string, DroneEntry>;
   // Backend-synced drones (authenticated mode)
   backendDrones: Record<string, any>;
+  // Per-org nickname overrides keyed by uas_id. Seeded from
+  // GET /api/orgs/:id/drone-nicknames on login/screen mount and kept
+  // fresh by NICKNAME_UPDATE WS events. Render path consults this map
+  // first, falling back to the drone row's `nickname` field.
+  nicknamesByUasId: Record<string, string>;
 
   updateBleDrone: (uasId: string, data: Partial<OdidDetection> & { rssi: number }) => void;
   removeDrone: (uasId: string) => void;
   clearBleDrones: () => void;
   setBackendDrones: (drones: Record<string, any>) => void;
   updateBackendDrone: (drone: any) => void;
+  setNicknames: (map: Record<string, string>) => void;
+  updateNickname: (uasId: string, nickname: string | null) => void;
   nearbyNodes: Record<string, { mac: string; rssi: number; lastSeen: number }>;
   updateNearbyNode: (mac: string, rssi: number) => void;
 }
@@ -60,7 +67,23 @@ function coerceBackendNumerics(drone: any): any {
 export const useDroneStore = create<DroneStore>((set) => ({
   bleDrones: {},
   backendDrones: {},
+  nicknamesByUasId: {},
   nearbyNodes: {},
+
+  setNicknames: (map) => set({ nicknamesByUasId: { ...map } }),
+
+  updateNickname: (uasId, nickname) => set(state => {
+    const next = { ...state.nicknamesByUasId };
+    if (nickname && nickname.trim()) next[uasId] = nickname;
+    else delete next[uasId];
+    // Mirror onto the matching backend drone row so any consumer reading
+    // `drone.nickname` directly sees the new value without an extra subscribe.
+    const existing = state.backendDrones[uasId];
+    const backendDrones = existing
+      ? { ...state.backendDrones, [uasId]: { ...existing, nickname: nickname || null } }
+      : state.backendDrones;
+    return { nicknamesByUasId: next, backendDrones };
+  }),
 
   updateBleDrone: (uasId, data) => {
     const now = Date.now();
