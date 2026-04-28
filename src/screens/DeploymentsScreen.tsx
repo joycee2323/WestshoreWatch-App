@@ -23,6 +23,7 @@ export default function DeploymentsScreen() {
 
   const [scheduleLater, setScheduleLater] = useState(false);
   const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
+  const [mode, setMode] = useState<'event' | 'continuous'>('event');
   const [iosPickerOpen, setIosPickerOpen] = useState(false);
   const [iosPickerDraft, setIosPickerDraft] = useState<Date>(() => new Date(Date.now() + 15 * 60_000));
 
@@ -88,7 +89,7 @@ export default function DeploymentsScreen() {
   const handleCreate = async () => {
     if (!newName.trim()) return;
     let scheduledFor: string | undefined;
-    if (scheduleLater) {
+    if (mode === 'event' && scheduleLater) {
       if (!scheduledDate) {
         Alert.alert('Pick a time', 'Choose when the deployment should start.');
         return;
@@ -102,8 +103,9 @@ export default function DeploymentsScreen() {
     }
     setCreating(true);
     try {
-      const res = await api.createDeployment(newName.trim(), scheduledFor);
+      const res = await api.createDeployment(newName.trim(), scheduledFor, mode);
       setNewName('');
+      setMode('event');
       setScheduleLater(false);
       setScheduledDate(null);
       if (res?.warning) Alert.alert('Heads up', res.warning);
@@ -144,6 +146,32 @@ export default function DeploymentsScreen() {
     catch (err: any) { Alert.alert('Error', err.message); }
   };
 
+  const handlePause = (dep: any) => {
+    Alert.alert(
+      'Pause Deployment',
+      `Pause continuous deployment "${dep.name}"?\n\nDetections will stop being recorded until resumed.`,
+      [
+        { text: 'Keep Running', style: 'cancel' },
+        { text: 'Pause', style: 'destructive', onPress: async () => {
+          try { await api.pauseDeployment(dep.id); await load(); }
+          catch (err: any) { Alert.alert('Error', err.message || 'Failed to pause deployment'); }
+        }},
+      ]
+    );
+  };
+
+  const handleResume = async (dep: any) => {
+    try { await api.resumeDeployment(dep.id); await load(); }
+    catch (err: any) {
+      const msg: string = err?.message || '';
+      if (msg === 'billing_required' || msg.includes('billing_required')) {
+        Alert.alert('Cannot Resume', 'Billing required — restore your subscription or credits before resuming.');
+      } else {
+        Alert.alert('Error', msg || 'Failed to resume deployment');
+      }
+    }
+  };
+
   const handleDelete = async (dep: any) => {
     Alert.alert(
       'Delete Deployment',
@@ -158,7 +186,7 @@ export default function DeploymentsScreen() {
     );
   };
 
-  const live = deployments.filter(d => d.status === 'active' || d.status === 'scheduled');
+  const live = deployments.filter(d => d.status === 'active' || d.status === 'scheduled' || d.status === 'paused');
   const history = deployments.filter(d => ['closed', 'expired', 'cancelled'].includes(d.status));
   const canCreate = billing?.is_super_admin || billing?.subscription?.status === 'active' || billing?.credit_balance > 0;
 
@@ -192,7 +220,34 @@ export default function DeploymentsScreen() {
           placeholderTextColor={colors.textMuted}
         />
 
-        <TouchableOpacity
+        <View style={s.modeSelector}>
+          <TouchableOpacity
+            style={s.scheduleRow}
+            onPress={() => setMode('event')}
+            activeOpacity={0.6}
+          >
+            <View style={[s.checkbox, mode === 'event' && s.checkboxChecked]}>
+              {mode === 'event' && <Text style={s.checkmark}>✓</Text>}
+            </View>
+            <Text style={s.scheduleLabel}>EVENT (24H)</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.scheduleRow}
+            onPress={() => {
+              setMode('continuous');
+              setScheduleLater(false);
+              setScheduledDate(null);
+            }}
+            activeOpacity={0.6}
+          >
+            <View style={[s.checkbox, mode === 'continuous' && s.checkboxChecked]}>
+              {mode === 'continuous' && <Text style={s.checkmark}>✓</Text>}
+            </View>
+            <Text style={s.scheduleLabel}>CONTINUOUS</Text>
+          </TouchableOpacity>
+        </View>
+
+        {mode === 'event' && <TouchableOpacity
           style={s.scheduleRow}
           onPress={() => {
             setScheduleLater(v => {
@@ -206,9 +261,9 @@ export default function DeploymentsScreen() {
             {scheduleLater && <Text style={s.checkmark}>✓</Text>}
           </View>
           <Text style={s.scheduleLabel}>SCHEDULE FOR LATER</Text>
-        </TouchableOpacity>
+        </TouchableOpacity>}
 
-        {scheduleLater && (
+        {mode === 'event' && scheduleLater && (
           <TouchableOpacity style={s.pickerBtn} onPress={openPicker} activeOpacity={0.7}>
             <Text style={scheduledDate ? s.pickerBtnValue : s.pickerBtnPlaceholder}>
               {scheduledDate ? scheduledDate.toLocaleString() : 'Choose date & time'}
@@ -223,7 +278,7 @@ export default function DeploymentsScreen() {
         >
           {creating
             ? <ActivityIndicator color="#000" size="small" />
-            : <Text style={s.btnText}>{scheduleLater ? 'SCHEDULE DEPLOYMENT' : 'START DEPLOYMENT'}</Text>
+            : <Text style={s.btnText}>{mode === 'event' && scheduleLater ? 'SCHEDULE DEPLOYMENT' : 'START DEPLOYMENT'}</Text>
           }
         </TouchableOpacity>
         {!canCreate && (
@@ -267,13 +322,17 @@ export default function DeploymentsScreen() {
             }
 
             const expiryMs = getExpiryMs(dep);
-            const remaining = expiryMs !== null ? expiryMs - now : null;
+            const isPaused = dep.status === 'paused';
+            const isContinuous = dep.mode === 'continuous';
+            const remaining = !isContinuous && expiryMs !== null ? expiryMs - now : null;
             const expired = remaining !== null && remaining <= 0;
             return (
-              <View key={dep.id} style={[s.card, s.activeCard]}>
+              <View key={dep.id} style={[s.card, isPaused ? s.pausedCard : s.activeCard]}>
                 <View style={s.depHeader}>
                   <Text style={s.depName}>{dep.name}</Text>
-                  <View style={s.activeBadge}><Text style={s.activeBadgeText}>● ACTIVE</Text></View>
+                  {isPaused
+                    ? <View style={s.pausedBadge}><Text style={s.pausedBadgeText}>◌ PAUSED</Text></View>
+                    : <View style={s.activeBadge}><Text style={s.activeBadgeText}>● ACTIVE</Text></View>}
                 </View>
                 <Text style={s.depMeta}>Started {new Date(dep.started_at).toLocaleString()}</Text>
                 {remaining !== null && (
@@ -286,9 +345,21 @@ export default function DeploymentsScreen() {
                   <StatChip label="DRONES" value={dep.drone_count || 0} color={colors.text} />
                 </View>
                 <View style={s.depActions}>
-                  <TouchableOpacity style={[s.actionBtn, s.amberBtn]} onPress={() => handleExtend(dep)}>
-                    <Text style={s.actionBtnText}>+24H</Text>
-                  </TouchableOpacity>
+                  {isContinuous && isPaused && (
+                    <TouchableOpacity style={[s.actionBtn, s.amberBtn]} onPress={() => handleResume(dep)}>
+                      <Text style={s.actionBtnText}>RESUME</Text>
+                    </TouchableOpacity>
+                  )}
+                  {isContinuous && !isPaused && (
+                    <TouchableOpacity style={[s.actionBtn, s.amberBtn]} onPress={() => handlePause(dep)}>
+                      <Text style={s.actionBtnText}>PAUSE</Text>
+                    </TouchableOpacity>
+                  )}
+                  {!isContinuous && (
+                    <TouchableOpacity style={[s.actionBtn, s.amberBtn]} onPress={() => handleExtend(dep)}>
+                      <Text style={s.actionBtnText}>+24H</Text>
+                    </TouchableOpacity>
+                  )}
                   <TouchableOpacity style={[s.actionBtn, s.dangerBtn]} onPress={() => handleClose(dep)}>
                     <Text style={s.actionBtnText}>CLOSE</Text>
                   </TouchableOpacity>
@@ -478,6 +549,18 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   scheduledBadgeText: {
     color: c.amber, fontSize: 9, letterSpacing: 1,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  pausedBadge: {
+    backgroundColor: 'rgba(245,158,11,0.15)', borderRadius: 10,
+    paddingHorizontal: 8, paddingVertical: 3,
+  },
+  pausedBadgeText: {
+    color: c.amber, fontSize: 9, letterSpacing: 1,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  pausedCard: { borderColor: 'rgba(245,158,11,0.3)' },
+  modeSelector: {
+    flexDirection: 'row', gap: 24, marginTop: 4, marginBottom: 4,
   },
   scheduleRow: {
     flexDirection: 'row', alignItems: 'center',
