@@ -80,7 +80,7 @@ class BLEScannerService : Service() {
         if (uploader == null) {
             val h = handler
             if (h != null) {
-                uploader = DetectionUploader(h).also {
+                uploader = DetectionUploader(h, applicationContext).also {
                     it.configure(UploadConfig.baseUrl, UploadConfig.authToken)
                     it.start()
                 }

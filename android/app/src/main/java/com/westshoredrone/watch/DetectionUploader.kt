@@ -1,7 +1,14 @@
 package com.westshoredrone.watch
 
+import android.content.Context
 import android.os.Handler
+import android.os.SystemClock
 import android.util.Log
+import com.facebook.react.ReactApplication
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.ReactContext
+import com.facebook.react.bridge.WritableMap
+import com.facebook.react.modules.core.DeviceEventManagerModule
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -17,7 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 // Drives POSTs to /api/nodes/<deviceId>/detections from inside the native
 // foreground service so uploads continue when the JS runtime is suspended in
 // Doze. See BLEScannerService for how detections are fed in.
-class DetectionUploader(private val handler: Handler) {
+class DetectionUploader(private val handler: Handler, private val context: Context) {
 
     // deviceId -> (uasId -> latest DroneRecord).
     // Coalesces repeat sightings within a flush window into the most recent
@@ -26,6 +33,13 @@ class DetectionUploader(private val handler: Handler) {
 
     @Volatile private var baseUrl: String? = null
     @Volatile private var authToken: String? = null
+
+    // Billing-pause backoff. On 402 (deployment paused) we re-enqueue the
+    // batch and skip flushes until pausedUntilElapsedMs. Backoff doubles on
+    // each consecutive 402 (5s → 10s → … → 60s cap) so we don't hammer the
+    // backend during a long pause window. Resets to 0 on the next 2xx.
+    @Volatile private var pausedBackoffMs: Long = 0L
+    @Volatile private var pausedUntilElapsedMs: Long = 0L
 
     private val loggedMissingNodes = java.util.Collections.newSetFromMap(
         ConcurrentHashMap<String, Boolean>()
@@ -114,6 +128,11 @@ class DetectionUploader(private val handler: Handler) {
         capWarnedThisCycle.set(false)
         if (queue.isEmpty()) return
 
+        // Honour billing-pause backoff. Returning early keeps drones in the
+        // queue (we haven't drained yet), so they'll go up on the next
+        // un-paused tick.
+        if (SystemClock.elapsedRealtime() < pausedUntilElapsedMs) return
+
         val url = baseUrl
         val token = authToken
         if (url == null) return
@@ -167,6 +186,13 @@ class DetectionUploader(private val handler: Handler) {
             client.newCall(req).execute().use { resp ->
                 if (resp.isSuccessful) {
                     Log.i(TAG, "POST ok node=$deviceId drones=${drones.size} status=${resp.code}")
+                    // Coming back from a billing pause? Tell JS to drop the
+                    // banner and clear backoff so the next flush is immediate.
+                    if (pausedBackoffMs > 0L) {
+                        pausedBackoffMs = 0L
+                        pausedUntilElapsedMs = 0L
+                        emitEvent("DeploymentResumed", Arguments.createMap())
+                    }
                 } else if (resp.code == 404) {
                     val firstTime = loggedMissingNodes.add(deviceId)
                     if (firstTime) {
@@ -175,6 +201,32 @@ class DetectionUploader(private val handler: Handler) {
                 } else if (resp.code == 401) {
                     Log.w(TAG, "POST 401 node=$deviceId — auth token rejected, clearing so JS can re-configure")
                     authToken = null
+                } else if (resp.code == 402) {
+                    // Deployment paused (billing). Re-enqueue this batch so
+                    // detections aren't lost during the pause window, bump
+                    // backoff, and notify JS to show the banner.
+                    val bodyStr = try { resp.body?.string() ?: "" } catch (_: Throwable) { "" }
+                    var deploymentId: String? = null
+                    if (bodyStr.isNotEmpty()) {
+                        try {
+                            val obj = JSONObject(bodyStr)
+                            deploymentId = obj.optString("deployment_id", "").takeIf { it.isNotEmpty() }
+                        } catch (_: Throwable) {}
+                    }
+                    Log.w(TAG, "POST 402 node=$deviceId — deployment paused, re-enqueueing batch (backoff=${pausedBackoffMs}ms→…)")
+                    val bucket = queue.getOrPut(deviceId) { ConcurrentHashMap() }
+                    for (d in drones) {
+                        if (bucket.size >= MAX_PER_NODE && !bucket.containsKey(d.id)) break
+                        bucket.putIfAbsent(d.id, d)
+                    }
+                    pausedBackoffMs =
+                        if (pausedBackoffMs == 0L) PAUSED_BACKOFF_INITIAL_MS
+                        else minOf(pausedBackoffMs * 2, PAUSED_BACKOFF_CAP_MS)
+                    pausedUntilElapsedMs = SystemClock.elapsedRealtime() + pausedBackoffMs
+                    val payload: WritableMap = Arguments.createMap().apply {
+                        if (deploymentId != null) putString("deployment_id", deploymentId)
+                    }
+                    emitEvent("DeploymentPaused", payload)
                 } else {
                     Log.w(TAG, "POST fail node=$deviceId status=${resp.code}")
                 }
@@ -193,6 +245,20 @@ class DetectionUploader(private val handler: Handler) {
         }
     }
 
+    private fun emitEvent(name: String, payload: WritableMap) {
+        val app = context.applicationContext as? ReactApplication ?: return
+        val reactContext: ReactContext? =
+            app.reactNativeHost.reactInstanceManager.currentReactContext
+        if (reactContext == null || !reactContext.hasActiveReactInstance()) return
+        try {
+            reactContext
+                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit(name, payload)
+        } catch (t: Throwable) {
+            Log.w(TAG, "emitEvent failed: ${t.message}")
+        }
+    }
+
     companion object {
         private const val TAG = "DetectionUploader"
         // 500ms flush — tuned for perceived Live Map responsiveness. Backend
@@ -200,6 +266,8 @@ class DetectionUploader(private val handler: Handler) {
         // frequency doesn't translate into more WS broadcast churn.
         private const val FLUSH_INTERVAL_MS = 500L
         private const val MAX_PER_NODE = 200
+        private const val PAUSED_BACKOFF_INITIAL_MS = 5_000L
+        private const val PAUSED_BACKOFF_CAP_MS = 60_000L
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
     }
 }

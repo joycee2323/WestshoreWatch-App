@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  View, Text, TextInput, StyleSheet, TouchableOpacity, Platform, PermissionsAndroid, AppState, Linking, Alert,
+  View, Text, TextInput, StyleSheet, TouchableOpacity, Platform, PermissionsAndroid, AppState, Linking, Alert, DeviceEventEmitter,
 } from 'react-native';
 import MapboxGL from '@rnmapbox/maps';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -77,6 +77,22 @@ export default function LiveMapScreen() {
   const [activeDeployment, setActiveDeployment] = useState<any>(null);
   const activeDeploymentRef = useRef<any>(null);
   useEffect(() => { activeDeploymentRef.current = activeDeployment; }, [activeDeployment]);
+
+  // Native uploader emits DeploymentPaused on 402 and DeploymentResumed on
+  // the next 2xx, so the banner reflects whatever the backend last said
+  // without the JS layer needing to know about the queue or backoff state.
+  useEffect(() => {
+    const subPaused = DeviceEventEmitter.addListener('DeploymentPaused', () => {
+      setShowPausedBanner(true);
+    });
+    const subResumed = DeviceEventEmitter.addListener('DeploymentResumed', () => {
+      setShowPausedBanner(false);
+    });
+    return () => {
+      subPaused.remove();
+      subResumed.remove();
+    };
+  }, []);
   const [nodes, setNodes] = useState<any[]>([]);
   const nodesRef = useRef<any[]>([]);
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
@@ -96,6 +112,7 @@ export default function LiveMapScreen() {
 
   const [selectedDrone, setSelectedDrone] = useState<any>(null);
   const [showBackgroundLocationBanner, setShowBackgroundLocationBanner] = useState(false);
+  const [showPausedBanner, setShowPausedBanner] = useState(false);
   const backgroundPromptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wsRef = useRef<ReconnectingWebSocket | null>(null);
   const cameraRef = useRef<MapboxGL.Camera>(null);
@@ -573,6 +590,17 @@ export default function LiveMapScreen() {
                 <Text style={s.bgLocDismiss}>DISMISS</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      )}
+
+      {showPausedBanner && (
+        <View style={s.bgLocBanner}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.bgLocTitle}>DEPLOYMENT PAUSED</Text>
+            <Text style={s.bgLocSub}>
+              Detections are queued and will upload when the deployment resumes. Visit watch.westshoredrone.com/billing for details.
+            </Text>
           </View>
         </View>
       )}
