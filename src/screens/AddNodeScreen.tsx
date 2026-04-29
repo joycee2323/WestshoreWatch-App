@@ -8,10 +8,14 @@ import { api } from '../services/api';
 import { fetchNodes, getUnclaimedNearby } from '../services/nodeRegistry';
 import { DiscoveredNode } from '../services/bleScanner';
 import { useTheme } from '../theme';
+import { useAuthStore } from '../store/authStore';
+import { caps } from '../lib/caps';
 
 export default function AddNodeScreen() {
   const colors = useTheme();
   const navigation = useNavigation<any>();
+  const user = useAuthStore(s => s.user);
+  const c = caps(user);
   const [unclaimed, setUnclaimed] = useState<DiscoveredNode[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [claiming, setClaiming] = useState<string | null>(null);
@@ -70,6 +74,20 @@ export default function AddNodeScreen() {
   }, [claim]);
 
   const s = styles(colors);
+
+  if (!c.canPairNode) {
+    return (
+      <ScrollView style={s.page} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+        <Text style={s.title}>ADD NODE</Text>
+        <View style={s.empty}>
+          <Text style={s.emptyText}>READ-ONLY</Text>
+          <Text style={s.emptyHint}>
+            Only operators and admins can pair nodes. Ask your organization admin to grant access.
+          </Text>
+        </View>
+      </ScrollView>
+    );
+  }
 
   return (
     <ScrollView

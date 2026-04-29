@@ -24,6 +24,12 @@ async function request(
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
+    // Billing status is admin-gated on the backend; viewers/operators get
+    // 403. Treat as "billing not visible to this user" so callers can keep
+    // using `billing?.` optional chaining instead of try/catch wrappers.
+    if (res.status === 403 && method === 'GET' && path === '/billing/status') {
+      return null;
+    }
     const err = await res.json().catch(() => ({ error: res.statusText }));
     console.warn(`API ${method} ${path} → ${res.status}:`, err);
     throw Object.assign(new Error(err.error || 'Request failed'), { status: res.status });

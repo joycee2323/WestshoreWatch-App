@@ -7,12 +7,16 @@ import { useFocusEffect } from '@react-navigation/native';
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { api } from '../services/api';
 import { useTheme } from '../theme';
+import { useAuthStore } from '../store/authStore';
+import { caps } from '../lib/caps';
 
 const MIN_LEAD_MS = 60_000;
 const MAX_LEAD_MS = 30 * 24 * 60 * 60 * 1000;
 
 export default function DeploymentsScreen() {
   const colors = useTheme();
+  const user = useAuthStore(s => s.user);
+  const c = caps(user);
   const [deployments, setDeployments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -188,7 +192,9 @@ export default function DeploymentsScreen() {
 
   const live = deployments.filter(d => d.status === 'active' || d.status === 'scheduled' || d.status === 'paused');
   const history = deployments.filter(d => ['closed', 'expired', 'cancelled'].includes(d.status));
-  const canCreate = billing?.is_super_admin || billing?.subscription?.status === 'active' || billing?.credit_balance > 0;
+  const canCreate = c.canCreateDeployment && (
+    billing?.is_super_admin || billing?.is_complimentary || billing?.subscription?.status === 'active' || billing?.credit_balance > 0
+  );
 
   const s = styles(colors);
 
@@ -208,7 +214,8 @@ export default function DeploymentsScreen() {
     >
       <Text style={s.title}>DEPLOYMENTS</Text>
 
-      {/* New deployment */}
+      {/* New deployment — operators+ only */}
+      {c.canCreateDeployment && (
       <View style={s.card}>
         <Text style={s.cardHeader}>START NEW DEPLOYMENT</Text>
         <Text style={s.cardSub}>$50 credit or included with subscription</Text>
@@ -285,6 +292,7 @@ export default function DeploymentsScreen() {
           <Text style={[s.hint, { color: colors.amber }]}>No active subscription or credits</Text>
         )}
       </View>
+      )}
 
       {/* Live (active + scheduled) */}
       {live.length > 0 && (
@@ -310,12 +318,16 @@ export default function DeploymentsScreen() {
                     </Text>
                   )}
                   <View style={s.depActions}>
-                    <TouchableOpacity style={[s.actionBtn, s.amberOutlineBtn]} onPress={() => handleCancel(dep)}>
-                      <Text style={[s.actionBtnText, { color: colors.amber }]}>CANCEL</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[s.actionBtn, s.dangerBtn, { opacity: 0.7 }]} onPress={() => handleDelete(dep)}>
-                      <Text style={s.actionBtnText}>DELETE</Text>
-                    </TouchableOpacity>
+                    {c.canCreateDeployment && (
+                      <TouchableOpacity style={[s.actionBtn, s.amberOutlineBtn]} onPress={() => handleCancel(dep)}>
+                        <Text style={[s.actionBtnText, { color: colors.amber }]}>CANCEL</Text>
+                      </TouchableOpacity>
+                    )}
+                    {c.canDeleteDeployment && (
+                      <TouchableOpacity style={[s.actionBtn, s.dangerBtn, { opacity: 0.7 }]} onPress={() => handleDelete(dep)}>
+                        <Text style={s.actionBtnText}>DELETE</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                 </View>
               );
@@ -345,27 +357,31 @@ export default function DeploymentsScreen() {
                   <StatChip label="DRONES" value={dep.drone_count || 0} color={colors.text} />
                 </View>
                 <View style={s.depActions}>
-                  {isContinuous && isPaused && (
+                  {c.canPauseDeployment && isContinuous && isPaused && (
                     <TouchableOpacity style={[s.actionBtn, s.amberBtn]} onPress={() => handleResume(dep)}>
                       <Text style={s.actionBtnText}>RESUME</Text>
                     </TouchableOpacity>
                   )}
-                  {isContinuous && !isPaused && (
+                  {c.canPauseDeployment && isContinuous && !isPaused && (
                     <TouchableOpacity style={[s.actionBtn, s.amberBtn]} onPress={() => handlePause(dep)}>
                       <Text style={s.actionBtnText}>PAUSE</Text>
                     </TouchableOpacity>
                   )}
-                  {!isContinuous && (
+                  {c.canCreateDeployment && !isContinuous && (
                     <TouchableOpacity style={[s.actionBtn, s.amberBtn]} onPress={() => handleExtend(dep)}>
                       <Text style={s.actionBtnText}>+24H</Text>
                     </TouchableOpacity>
                   )}
-                  <TouchableOpacity style={[s.actionBtn, s.dangerBtn]} onPress={() => handleClose(dep)}>
-                    <Text style={s.actionBtnText}>CLOSE</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[s.actionBtn, s.dangerBtn, { opacity: 0.7 }]} onPress={() => handleDelete(dep)}>
-                    <Text style={s.actionBtnText}>DELETE</Text>
-                  </TouchableOpacity>
+                  {c.canCreateDeployment && (
+                    <TouchableOpacity style={[s.actionBtn, s.dangerBtn]} onPress={() => handleClose(dep)}>
+                      <Text style={s.actionBtnText}>CLOSE</Text>
+                    </TouchableOpacity>
+                  )}
+                  {c.canDeleteDeployment && (
+                    <TouchableOpacity style={[s.actionBtn, s.dangerBtn, { opacity: 0.7 }]} onPress={() => handleDelete(dep)}>
+                      <Text style={s.actionBtnText}>DELETE</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
             );
@@ -389,11 +405,13 @@ export default function DeploymentsScreen() {
                   </Text>
                 </View>
                 <Text style={s.depMeta}>{dateStr} · {dep.drone_count || 0} drones</Text>
-                <View style={s.depActions}>
-                  <TouchableOpacity style={[s.actionBtn, s.ghostBtn]} onPress={() => handleDelete(dep)}>
-                    <Text style={[s.actionBtnText, { color: colors.red }]}>DELETE</Text>
-                  </TouchableOpacity>
-                </View>
+                {c.canDeleteDeployment && (
+                  <View style={s.depActions}>
+                    <TouchableOpacity style={[s.actionBtn, s.ghostBtn]} onPress={() => handleDelete(dep)}>
+                      <Text style={[s.actionBtnText, { color: colors.red }]}>DELETE</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             );
           })}
@@ -403,7 +421,11 @@ export default function DeploymentsScreen() {
       {deployments.length === 0 && (
         <View style={s.empty}>
           <Text style={s.emptyText}>NO DEPLOYMENTS</Text>
-          <Text style={s.emptyHint}>Start a deployment above to begin detecting drones</Text>
+          <Text style={s.emptyHint}>
+            {c.canCreateDeployment
+              ? 'Start a deployment above to begin detecting drones'
+              : 'No deployments yet.'}
+          </Text>
         </View>
       )}
 

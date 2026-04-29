@@ -8,6 +8,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { api } from '../services/api';
 import { useTheme } from '../theme';
+import { useAuthStore } from '../store/authStore';
+import { caps } from '../lib/caps';
 
 // Sort matches the backend (display_order ASC NULLS LAST, name ASC). This is a
 // client-side safety net — the backend already returns nodes pre-sorted, but
@@ -29,6 +31,8 @@ function sortNodes(list: any[]): any[] {
 export default function NodesScreen() {
   const colors = useTheme();
   const navigation = useNavigation<any>();
+  const user = useAuthStore(s => s.user);
+  const c = caps(user);
   const [nodes, setNodes] = useState<any[]>([]);
   const [deployments, setDeployments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -212,7 +216,7 @@ export default function NodesScreen() {
           <Text style={s.title}>NODES</Text>
           <Text style={s.subtitle}>{nodes.length} node{nodes.length !== 1 ? 's' : ''} registered</Text>
         </View>
-        {nodes.length > 0 && (
+        {nodes.length > 0 && c.canPairNode && (
           <TouchableOpacity style={s.addBtn} onPress={handleAddNode} activeOpacity={0.8}>
             <Text style={s.addBtnText}>+ ADD</Text>
           </TouchableOpacity>
@@ -231,47 +235,51 @@ export default function NodesScreen() {
               <View style={s.nameRow}>
                 <View style={[s.statusDot, { backgroundColor: online ? colors.green : colors.textMuted }]} />
                 <Text style={s.nodeName}>{node.name || `Node ${node.id.slice(0, 8)}`}</Text>
-                <TouchableOpacity
-                  onPress={() => openRename(node)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  style={s.renameBtn}
-                  accessibilityLabel="Rename node"
-                >
-                  <Text style={s.renameIcon}>✎</Text>
-                </TouchableOpacity>
+                {c.canEditNode && (
+                  <TouchableOpacity
+                    onPress={() => openRename(node)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={s.renameBtn}
+                    accessibilityLabel="Rename node"
+                  >
+                    <Text style={s.renameIcon}>✎</Text>
+                  </TouchableOpacity>
+                )}
               </View>
               <View style={s.headerRight}>
                 <Text style={[s.statusBadge, { color: online ? colors.green : colors.textMuted }]}>
                   {online ? 'ONLINE' : 'OFFLINE'}
                 </Text>
-                <View style={s.reorderCol}>
-                  <TouchableOpacity
-                    style={[s.reorderBtn, !canMoveUp && s.reorderBtnDisabled]}
-                    onPress={() => reorder(index, -1)}
-                    disabled={!canMoveUp}
-                    hitSlop={{ top: 6, bottom: 2, left: 6, right: 6 }}
-                    accessibilityLabel="Move node up"
-                  >
-                    <Ionicons
-                      name="chevron-up"
-                      size={16}
-                      color={canMoveUp ? colors.cyan : colors.textMuted}
-                    />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[s.reorderBtn, !canMoveDown && s.reorderBtnDisabled]}
-                    onPress={() => reorder(index, 1)}
-                    disabled={!canMoveDown}
-                    hitSlop={{ top: 2, bottom: 6, left: 6, right: 6 }}
-                    accessibilityLabel="Move node down"
-                  >
-                    <Ionicons
-                      name="chevron-down"
-                      size={16}
-                      color={canMoveDown ? colors.cyan : colors.textMuted}
-                    />
-                  </TouchableOpacity>
-                </View>
+                {c.canEditNode && (
+                  <View style={s.reorderCol}>
+                    <TouchableOpacity
+                      style={[s.reorderBtn, !canMoveUp && s.reorderBtnDisabled]}
+                      onPress={() => reorder(index, -1)}
+                      disabled={!canMoveUp}
+                      hitSlop={{ top: 6, bottom: 2, left: 6, right: 6 }}
+                      accessibilityLabel="Move node up"
+                    >
+                      <Ionicons
+                        name="chevron-up"
+                        size={16}
+                        color={canMoveUp ? colors.cyan : colors.textMuted}
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[s.reorderBtn, !canMoveDown && s.reorderBtnDisabled]}
+                      onPress={() => reorder(index, 1)}
+                      disabled={!canMoveDown}
+                      hitSlop={{ top: 2, bottom: 6, left: 6, right: 6 }}
+                      accessibilityLabel="Move node down"
+                    >
+                      <Ionicons
+                        name="chevron-down"
+                        size={16}
+                        color={canMoveDown ? colors.cyan : colors.textMuted}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             </View>
 
@@ -294,17 +302,19 @@ export default function NodesScreen() {
               </View>
             )}
 
-            <View style={s.nodeActions}>
-              {node.deployment_id ? (
-                <TouchableOpacity style={[s.actionBtn, s.dangerBtn]} onPress={() => handleUnassign(node)}>
-                  <Text style={[s.actionBtnText, { color: colors.red }]}>UNASSIGN</Text>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity style={[s.actionBtn, s.assignBtn]} onPress={() => handleAssign(node)}>
-                  <Text style={[s.actionBtnText, { color: colors.cyan }]}>ASSIGN TO DEPLOYMENT</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+            {c.canEditNode && (
+              <View style={s.nodeActions}>
+                {node.deployment_id ? (
+                  <TouchableOpacity style={[s.actionBtn, s.dangerBtn]} onPress={() => handleUnassign(node)}>
+                    <Text style={[s.actionBtnText, { color: colors.red }]}>UNASSIGN</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity style={[s.actionBtn, s.assignBtn]} onPress={() => handleAssign(node)}>
+                    <Text style={[s.actionBtnText, { color: colors.cyan }]}>ASSIGN TO DEPLOYMENT</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
           </View>
         );
       })}
@@ -312,14 +322,20 @@ export default function NodesScreen() {
       {nodes.length === 0 && (
         <View style={s.empty}>
           <Text style={s.emptyText}>NO NODES</Text>
-          <Text style={s.emptyHint}>Claim a nearby node to start detecting drones</Text>
-          <TouchableOpacity
-            style={s.registerBtn}
-            onPress={handleAddNode}
-            activeOpacity={0.8}
-          >
-            <Text style={s.registerBtnText}>SCAN FOR NEARBY NODE →</Text>
-          </TouchableOpacity>
+          <Text style={s.emptyHint}>
+            {c.canPairNode
+              ? 'Claim a nearby node to start detecting drones'
+              : 'No nodes have been registered for your organization yet.'}
+          </Text>
+          {c.canPairNode && (
+            <TouchableOpacity
+              style={s.registerBtn}
+              onPress={handleAddNode}
+              activeOpacity={0.8}
+            >
+              <Text style={s.registerBtnText}>SCAN FOR NEARBY NODE →</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 

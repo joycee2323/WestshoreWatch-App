@@ -14,6 +14,7 @@ import { OP_STATUS_AIRBORNE } from '../services/odidParser';
 import { startBleScanning, stopBleScanning } from '../services/bleScanner';
 import { fetchNodes as fetchNodeRegistry, getNodeByMac } from '../services/nodeRegistry';
 import * as Location from 'expo-location';
+import { caps } from '../lib/caps';
 
 const NODE_REGISTRATION_URL = 'https://watch.westshoredrone.com/nodes';
 // Debounce window for nickname edits — avoids hammering the backend on every
@@ -57,6 +58,8 @@ export default function LiveMapScreen() {
   const nicknameSaveTimers = useRef<Record<string, any>>({});
 
   const orgId = useAuthStore(s => s.user?.org_id);
+  const user = useAuthStore(s => s.user);
+  const c = caps(user);
 
   // Initial nickname hydrate — once we know the user's org, fetch the
   // server-side map. Without this, nicknames only appear once a drone is
@@ -650,8 +653,9 @@ export default function LiveMapScreen() {
             <TextInput
               style={s.nicknameInput}
               value={nickname}
-              onChangeText={(text) => setNickname(uasId, text)}
-              placeholder="Add nickname..."
+              onChangeText={c.canEditDrone ? (text) => setNickname(uasId, text) : undefined}
+              editable={c.canEditDrone}
+              placeholder={c.canEditDrone ? 'Add nickname...' : ''}
               placeholderTextColor={colors.textMuted}
               maxLength={30}
             />

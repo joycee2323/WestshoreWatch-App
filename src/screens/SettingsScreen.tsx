@@ -12,6 +12,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import ChangePasswordScreen from './ChangePasswordScreen';
 import { api } from '../services/api';
 import { useTheme } from '../theme';
+import { caps } from '../lib/caps';
 
 // Hardcoded fallback if /api/docs/manual-url is unreachable. Kept in sync
 // with the backend route (src/routes/docs.js) — both must point at the
@@ -118,6 +119,7 @@ export default function SettingsScreen() {
   const isSuperAdmin = billing?.is_super_admin || user?.role === 'super_admin';
   const isOrgAdmin = user?.role === 'org_admin';
   const canBilling = isOrgAdmin && !isSuperAdmin;
+  const c = caps(user);
 
   const s = styles(colors);
 
@@ -146,7 +148,8 @@ export default function SettingsScreen() {
         </View>
       </View>
 
-      {/* Billing */}
+      {/* Billing — admins only (backend 403s viewers/operators on /billing/status) */}
+      {c.canViewBilling && (
       <View style={s.card}>
         <Text style={s.cardHeader}>SUBSCRIPTION</Text>
         {loading ? (
@@ -177,6 +180,7 @@ export default function SettingsScreen() {
           <Text style={s.sub}>Failed to load billing info</Text>
         )}
       </View>
+      )}
 
       {/* Upgrade — org_admin only */}
       {canBilling && (
