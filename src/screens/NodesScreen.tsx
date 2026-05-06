@@ -5,6 +5,7 @@ import {
   Modal, TextInput, KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { api } from '../services/api';
 import { useTheme } from '../theme';
@@ -30,6 +31,7 @@ function sortNodes(list: any[]): any[] {
 
 export default function NodesScreen() {
   const colors = useTheme();
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const user = useAuthStore(s => s.user);
   const c = caps(user);
@@ -208,7 +210,11 @@ export default function NodesScreen() {
   return (
     <ScrollView
       style={s.page}
-      contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+      contentContainerStyle={{
+        padding: 16,
+        paddingTop: 16 + (insets.top || 0),
+        paddingBottom: 40,
+      }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.cyan} />}
     >
       <View style={s.headerRow}>

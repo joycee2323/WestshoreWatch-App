@@ -27,6 +27,48 @@ import Constants from 'expo-constants';
 import { api } from './api';
 
 const PUSH_TOKEN_KEY = 'push_token';
+const PUSH_REGISTRATION_STATUS_KEY = 'push_registration_status';
+
+export type RegistrationStep =
+  | 'permission'
+  | 'device'
+  | 'token'
+  | 'register'
+  | 'success';
+
+export interface RegistrationStatus {
+  timestamp: string;
+  success: boolean;
+  step: RegistrationStep;
+  error?: string;
+  token?: string;
+}
+
+// Persist the most recent registerForPushNotifications outcome so the
+// Settings → "Push diagnostic" row can surface it without needing
+// adb logcat. Best-effort write (SecureStore failures swallowed —
+// this is debugging UI, not load-bearing).
+async function recordRegistrationStatus(status: RegistrationStatus): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(PUSH_REGISTRATION_STATUS_KEY, JSON.stringify(status));
+  } catch (err) {
+    console.warn('[pushReg] failed to persist registration status:', err);
+  }
+}
+
+// Read the most recent registration outcome. Used by the Settings
+// "Push diagnostic" row.
+export async function getLastRegistrationStatus(): Promise<RegistrationStatus | null> {
+  try {
+    const raw = await SecureStore.getItemAsync(PUSH_REGISTRATION_STATUS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed as RegistrationStatus;
+  } catch (err) {
+    console.warn('[pushReg] failed to read registration status:', err);
+    return null;
+  }
+}
 
 export const NOTIFICATION_KIND_CHANNELS: Record<string, string> = {
   drone_detected: 'drone_alerts',
@@ -99,49 +141,126 @@ function readProjectId(): string | undefined {
 // to the backend. Returns the token on success, null on any failure
 // (permission denied, simulator, network error). Safe to call on every
 // login — backend UPSERTs by token.
+//
+// Every step writes a [pushReg] console log AND persists a status
+// snapshot to SecureStore so SettingsScreen → "Push diagnostic" can
+// show the most recent outcome without adb logcat. The status
+// instrumentation is debug-only — remove before production.
 export async function registerForPushNotifications(): Promise<string | null> {
+  console.log('[pushReg] starting registration flow');
+
   if (!Device.isDevice) {
-    console.warn('[push] skipping registration: simulator/emulator does not support Expo Push');
+    console.log('[pushReg] step=device result=fail (simulator/emulator)');
+    await recordRegistrationStatus({
+      timestamp: new Date().toISOString(),
+      success: false,
+      step: 'device',
+      error: 'Not a physical device',
+    });
     return null;
   }
+  console.log('[pushReg] step=device result=ok (Device.isDevice=true)');
+
   try {
     const existing = await Notifications.getPermissionsAsync();
     let status = existing.status;
+    console.log(`[pushReg] step=permission existing.status=${status}`);
     if (status !== 'granted') {
       const req = await Notifications.requestPermissionsAsync();
       status = req.status;
+      console.log(`[pushReg] step=permission requested.status=${status}`);
     }
     if (status !== 'granted') {
-      console.warn('[push] permission denied; skipping registration');
+      console.log('[pushReg] step=permission result=fail (denied)');
+      await recordRegistrationStatus({
+        timestamp: new Date().toISOString(),
+        success: false,
+        step: 'permission',
+        error: `Permission status: ${status}`,
+      });
       return null;
     }
+    console.log('[pushReg] step=permission result=ok');
+
     const projectId = readProjectId();
+    console.log(`[pushReg] step=token projectId=${projectId || '<none>'}`);
     if (!projectId) {
-      console.warn('[push] no projectId found in app.config — Expo Push will fail in standalone builds');
+      console.warn('[pushReg] no projectId found in app.config — Expo Push will fail in standalone builds');
     }
-    const tokenResponse = await Notifications.getExpoPushTokenAsync(
-      projectId ? { projectId } : undefined,
-    );
-    const token = tokenResponse.data;
-    if (!token) {
-      console.warn('[push] getExpoPushTokenAsync returned empty token');
+
+    let token: string;
+    try {
+      const tokenResponse = await Notifications.getExpoPushTokenAsync(
+        projectId ? { projectId } : undefined,
+      );
+      token = tokenResponse.data;
+      console.log(`[pushReg] step=token result=ok token=${token ? token.slice(0, 24) + '...' : '<empty>'}`);
+    } catch (tokenErr: any) {
+      const msg = tokenErr?.message || String(tokenErr);
+      console.warn('[pushReg] step=token result=fail error=', msg);
+      await recordRegistrationStatus({
+        timestamp: new Date().toISOString(),
+        success: false,
+        step: 'token',
+        error: msg,
+      });
       return null;
     }
+    if (!token) {
+      console.warn('[pushReg] step=token result=fail empty');
+      await recordRegistrationStatus({
+        timestamp: new Date().toISOString(),
+        success: false,
+        step: 'token',
+        error: 'getExpoPushTokenAsync returned empty token',
+      });
+      return null;
+    }
+
     try {
       await api.registerPushToken(token, Platform.OS === 'ios' ? 'ios' : 'android');
-    } catch (err) {
-      // Backend register failed — keep the local token so a retry on
-      // next launch can recover. Don't throw to caller.
-      console.warn('[push] backend register failed:', err);
+      console.log('[pushReg] step=register result=ok');
+    } catch (err: any) {
+      const status = err?.status ? `HTTP ${err.status}` : '';
+      const msg = `${status} ${err?.message || String(err)}`.trim();
+      console.warn('[pushReg] step=register result=fail error=', msg);
+      await recordRegistrationStatus({
+        timestamp: new Date().toISOString(),
+        success: false,
+        step: 'register',
+        error: msg,
+        token,
+      });
+      // Keep the local token so a retry on next launch can recover.
+      // Don't throw to caller.
+      try {
+        await SecureStore.setItemAsync(PUSH_TOKEN_KEY, token);
+      } catch {}
+      return null;
     }
+
     try {
       await SecureStore.setItemAsync(PUSH_TOKEN_KEY, token);
     } catch (err) {
-      console.warn('[push] SecureStore.set failed:', err);
+      console.warn('[pushReg] SecureStore.set failed:', err);
     }
+    console.log('[pushReg] step=success');
+    await recordRegistrationStatus({
+      timestamp: new Date().toISOString(),
+      success: true,
+      step: 'success',
+      token,
+    });
     return token;
-  } catch (err) {
-    console.warn('[push] registerForPushNotifications failed:', err);
+  } catch (err: any) {
+    const msg = err?.message || String(err);
+    console.warn('[pushReg] unexpected failure:', msg);
+    await recordRegistrationStatus({
+      timestamp: new Date().toISOString(),
+      success: false,
+      step: 'token',
+      error: `Unexpected: ${msg}`,
+    });
     return null;
   }
 }

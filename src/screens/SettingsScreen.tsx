@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Alert, Platform, ActivityIndicator,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuthStore } from '../store/authStore';
 import BillingScreen from './BillingScreen';
@@ -13,6 +14,7 @@ import { api } from '../services/api';
 import { useTheme } from '../theme';
 import { caps } from '../lib/caps';
 import { useNotificationsStore } from '../store/notificationsStore';
+import { getLastRegistrationStatus, registerForPushNotifications } from '../services/pushNotifications';
 
 // Hardcoded fallback if /api/docs/manual-url is unreachable. Kept in sync
 // with the backend route (src/routes/docs.js) — both must point at the
@@ -21,6 +23,7 @@ const MANUAL_URL_FALLBACK = 'https://api.westshoredrone.com/docs/westshore-watch
 
 export default function SettingsScreen() {
   const colors = useTheme();
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { user, logout } = useAuthStore();
   const [billing, setBilling] = useState<any>(null);
@@ -36,6 +39,35 @@ export default function SettingsScreen() {
   useFocusEffect(useCallback(() => {
     void refreshUnreadCount();
   }, [refreshUnreadCount]));
+
+  const handleShowPushDiagnostic = useCallback(async () => {
+    const status = await getLastRegistrationStatus();
+    if (!status) {
+      Alert.alert(
+        'Push diagnostic',
+        'No registration attempt has been recorded yet on this device. Triggering one now — try again in a few seconds.',
+        [
+          { text: 'OK' },
+          { text: 'Retry now', onPress: () => { void registerForPushNotifications(); } },
+        ],
+      );
+      return;
+    }
+    const lines: string[] = [];
+    lines.push(`When: ${status.timestamp}`);
+    lines.push(`Step: ${status.step}`);
+    lines.push(`Success: ${status.success ? 'yes' : 'no'}`);
+    if (status.token) lines.push(`Token: ${status.token.slice(0, 28)}...`);
+    if (status.error) lines.push(`Error: ${status.error}`);
+    Alert.alert(
+      'Push diagnostic',
+      lines.join('\n'),
+      [
+        { text: 'OK' },
+        { text: 'Retry registration', onPress: () => { void registerForPushNotifications(); } },
+      ],
+    );
+  }, []);
 
   const handleSendTest = useCallback(async () => {
     try {
@@ -110,7 +142,14 @@ export default function SettingsScreen() {
   }
 
   return (
-    <ScrollView style={s.page} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+    <ScrollView
+      style={s.page}
+      contentContainerStyle={{
+        padding: 16,
+        paddingTop: 16 + (insets.top || 0),
+        paddingBottom: 40,
+      }}
+    >
       <Text style={s.title}>ACCOUNT</Text>
 
       {/* User info */}
@@ -215,6 +254,15 @@ export default function SettingsScreen() {
           subtitle="Verify push delivery on this device"
           right={<Text style={s.chevron}>›</Text>}
           onPress={handleSendTest}
+          isLast={false}
+        />
+        {/* Debug-only — remove before production. Surfaces the last
+            registration outcome so we don't need adb logcat. */}
+        <SettingRow
+          colors={colors}
+          label="Push diagnostic"
+          subtitle="Debug: last registration outcome"
+          onPress={handleShowPushDiagnostic}
           isLast={true}
         />
       </View>

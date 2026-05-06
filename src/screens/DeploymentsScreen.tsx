@@ -4,6 +4,7 @@ import {
   TextInput, Alert, ActivityIndicator, RefreshControl, Platform, Modal,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { api } from '../services/api';
 import { useTheme } from '../theme';
@@ -15,6 +16,7 @@ const MAX_LEAD_MS = 30 * 24 * 60 * 60 * 1000;
 
 export default function DeploymentsScreen() {
   const colors = useTheme();
+  const insets = useSafeAreaInsets();
   const user = useAuthStore(s => s.user);
   const c = caps(user);
   const [deployments, setDeployments] = useState<any[]>([]);
@@ -209,7 +211,11 @@ export default function DeploymentsScreen() {
   return (
     <ScrollView
       style={s.page}
-      contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+      contentContainerStyle={{
+        padding: 16,
+        paddingTop: 16 + (insets.top || 0),
+        paddingBottom: 40,
+      }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.cyan} />}
     >
       <Text style={s.title}>DEPLOYMENTS</Text>
