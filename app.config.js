@@ -58,6 +58,15 @@ module.exports = ({ config }) => ({
       ],
       'expo-secure-store',
       'expo-location',
+      // Notification icon defaults to the app icon. Add `icon` and
+      // `color` here once a dedicated 96×96 monochrome notification
+      // PNG is committed under ./assets/notification-icon.png.
+      [
+        'expo-notifications',
+        {
+          color: '#00d4ff',
+        },
+      ],
     ],
     extra: {
       eas: {

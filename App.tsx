@@ -3,7 +3,15 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppNavigator from './src/navigation/AppNavigator';
 import { initDroneNotifications } from './src/services/droneNotifier';
+import { configureNotificationHandler, setupAndroidChannels } from './src/services/pushNotifications';
 import { KEEP_SCREEN_ON_STORAGE_KEY } from './src/components/KeepScreenOnToggle';
+
+// Foreground handler must be registered before any notification
+// arrives, so it goes at module-load time (top of App.tsx import
+// order). Channel setup is async but idempotent — the kicked-off
+// promise can finish whenever.
+configureNotificationHandler();
+void setupAndroidChannels();
 
 const LEGACY_KEEP_SCREEN_ON_KEY = 'live_map_keep_screen_on';
 

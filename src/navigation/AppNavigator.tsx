@@ -20,6 +20,11 @@ import DeploymentsScreen from '../screens/DeploymentsScreen';
 import NodesScreen from '../screens/NodesScreen';
 import AddNodeScreen from '../screens/AddNodeScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
+import NotificationsScreen from '../screens/NotificationsScreen';
+import NotificationPreferencesScreen from '../screens/NotificationPreferencesScreen';
+import { setupNotificationListeners } from '../services/pushNotifications';
+import { useNotificationsStore } from '../store/notificationsStore';
+import { NavigationContainerRef } from '@react-navigation/native';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -119,8 +124,22 @@ export default function AppNavigator() {
   const scheme = useColorScheme();
   const { token, isLoading, loadToken } = useAuthStore();
   const colors = useTheme();
+  const navRef = React.useRef<NavigationContainerRef<any>>(null);
+  const incrementUnread = useNotificationsStore(s => s.incrementUnread);
 
   useEffect(() => { loadToken(); }, []);
+
+  // Push notification listeners are mounted while authenticated so a
+  // tapped notification can deep-link via the navigation tree. Foreground
+  // arrivals bump the in-app badge so a re-rendered screen reflects the
+  // new state without a full refetch.
+  useEffect(() => {
+    if (!token) return;
+    const sub = setupNotificationListeners(navRef.current, () => {
+      try { incrementUnread(); } catch {}
+    });
+    return () => { sub.remove(); };
+  }, [token, incrementUnread]);
 
   if (isLoading) {
     return (
@@ -135,7 +154,7 @@ export default function AppNavigator() {
     : { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: colors.bg, card: colors.surface, border: colors.border, primary: colors.cyan, text: colors.text, notification: colors.red } };
 
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer ref={navRef} theme={navTheme}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {token ? (
           <>
@@ -144,6 +163,14 @@ export default function AppNavigator() {
               name="AddNode"
               component={AddNodeScreen}
               options={{ headerShown: true, title: 'Add Node', presentation: 'modal' }}
+            />
+            <Stack.Screen
+              name="Notifications"
+              component={NotificationsScreen}
+            />
+            <Stack.Screen
+              name="NotificationPreferences"
+              component={NotificationPreferencesScreen}
             />
           </>
         ) : (

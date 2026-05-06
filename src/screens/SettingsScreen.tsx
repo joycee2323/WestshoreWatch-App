@@ -3,51 +3,54 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Alert, Platform, ActivityIndicator,
 } from 'react-native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuthStore } from '../store/authStore';
 import BillingScreen from './BillingScreen';
 import { Linking } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import * as Location from 'expo-location';
-import { useFocusEffect } from '@react-navigation/native';
 import ChangePasswordScreen from './ChangePasswordScreen';
 import { api } from '../services/api';
 import { useTheme } from '../theme';
 import { caps } from '../lib/caps';
+import { useNotificationsStore } from '../store/notificationsStore';
 
 // Hardcoded fallback if /api/docs/manual-url is unreachable. Kept in sync
 // with the backend route (src/routes/docs.js) — both must point at the
 // same canonical URL.
 const MANUAL_URL_FALLBACK = 'https://api.westshoredrone.com/docs/westshore-watch-instruction-manual.pdf';
 
-type BgScanState = 'granted' | 'foreground_only' | 'denied';
-
 export default function SettingsScreen() {
   const colors = useTheme();
+  const navigation = useNavigation<any>();
   const { user, logout } = useAuthStore();
   const [billing, setBilling] = useState<any>(null);
   const [showBilling, setShowBilling] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [loading, setLoading] = useState(true);
   const [manualUrl, setManualUrl] = useState<string>(MANUAL_URL_FALLBACK);
-  const [bgScanState, setBgScanState] = useState<BgScanState | null>(null);
+  const unreadCount = useNotificationsStore(s => s.unreadCount);
+  const refreshUnreadCount = useNotificationsStore(s => s.refreshUnreadCount);
 
-  // Recompute background-scan permission state. Called on mount AND on focus
-  // so that returning from system Settings (where the user may have toggled
-  // the permission) refreshes the row.
-  const refreshBgScanState = useCallback(async () => {
-    if (Platform.OS !== 'android') {
-      setBgScanState('granted');
-      return;
-    }
+  // Refresh the unread badge whenever the user lands on Settings —
+  // matches the spec ("unread count should refresh on a focus listener").
+  useFocusEffect(useCallback(() => {
+    void refreshUnreadCount();
+  }, [refreshUnreadCount]));
+
+  const handleSendTest = useCallback(async () => {
     try {
-      const fg = await Location.getForegroundPermissionsAsync();
-      const bg = await Location.getBackgroundPermissionsAsync();
-      if (bg.status === 'granted') setBgScanState('granted');
-      else if (fg.status === 'granted') setBgScanState('foreground_only');
-      else setBgScanState('denied');
-    } catch (err) {
-      console.warn('[settings] bg perm check failed:', err);
-      setBgScanState('denied');
+      const res = await api.sendTestNotification();
+      const sent = res?.result?.sent;
+      const reason = res?.result?.reason;
+      if (sent) {
+        Alert.alert('Test sent', 'Check your notification shade.');
+      } else {
+        Alert.alert('Test not delivered', reason === 'pref_off'
+          ? 'The "drone_detected" preference is off — turn it back on in Notification Preferences and retry.'
+          : `Reason: ${reason || 'unknown'}`);
+      }
+    } catch (err: any) {
+      Alert.alert('Test failed', err?.message || 'Could not send test notification.');
     }
   }, []);
 
@@ -61,40 +64,12 @@ export default function SettingsScreen() {
       });
   }, []);
 
-  useEffect(() => { void refreshBgScanState(); }, [refreshBgScanState]);
-  useFocusEffect(useCallback(() => { void refreshBgScanState(); }, [refreshBgScanState]));
-
   const handleOpenManual = useCallback(() => {
     Linking.openURL(manualUrl).catch(err => {
       console.warn('[settings] failed to open manual:', err);
       Alert.alert('Could not open manual', 'Please try again or visit watch.westshoredrone.com.');
     });
   }, [manualUrl]);
-
-  const handleBgScanPress = useCallback(async () => {
-    if (bgScanState === 'granted') return;
-    try {
-      const fg = await Location.getForegroundPermissionsAsync();
-      if (fg.status !== 'granted') {
-        // Foreground location was never granted — Android requires staged
-        // approval (foreground first, then background). Send the user to
-        // settings rather than firing two prompts in a row.
-        Linking.openSettings();
-        return;
-      }
-      const res = await Location.requestBackgroundPermissionsAsync();
-      if (res.status === 'granted') {
-        await refreshBgScanState();
-        return;
-      }
-      // Denied (or permanently denied — Android may resolve immediately
-      // without UI). Settings is the only way to flip it after that point.
-      Linking.openSettings();
-    } catch (err) {
-      console.warn('[settings] bg permission request failed:', err);
-      Linking.openSettings();
-    }
-  }, [bgScanState, refreshBgScanState]);
 
   const handleAdminPanel = async () => {
     const token = await SecureStore.getItemAsync('auth_token');
@@ -206,14 +181,50 @@ export default function SettingsScreen() {
         <Row label="BLE SCANNING" value="Active" colors={colors} />
       </View>
 
+      {/* Notifications */}
+      <View style={s.rowCard}>
+        <SettingRow
+          colors={colors}
+          label="Notifications"
+          subtitle={unreadCount > 0
+            ? `${unreadCount} unread`
+            : 'View your notification feed'}
+          right={
+            unreadCount > 0 ? (
+              <View style={s.badge}>
+                <Text style={s.badgeText}>{unreadCount > 99 ? '99+' : String(unreadCount)}</Text>
+              </View>
+            ) : (
+              <Text style={s.chevron}>›</Text>
+            )
+          }
+          onPress={() => navigation.navigate('Notifications')}
+          isLast={false}
+        />
+        <SettingRow
+          colors={colors}
+          label="Notification preferences"
+          subtitle="Toggle which alerts you receive"
+          right={<Text style={s.chevron}>›</Text>}
+          onPress={() => navigation.navigate('NotificationPreferences')}
+          isLast={false}
+        />
+        <SettingRow
+          colors={colors}
+          label="Send test notification"
+          subtitle="Verify push delivery on this device"
+          right={<Text style={s.chevron}>›</Text>}
+          onPress={handleSendTest}
+          isLast={true}
+        />
+      </View>
+
       {/* Change Password — all users */}
       <TouchableOpacity style={s.changePasswordBtn} onPress={() => setShowChangePassword(true)}>
         <Text style={s.changePasswordText}>🔑  CHANGE PASSWORD</Text>
       </TouchableOpacity>
 
-      {/* User Manual + Background Scanning — placed above sign out so
-          first-install users who declined the bg-location prompt have
-          a discoverable way back. */}
+      {/* User Manual */}
       <View style={s.rowCard}>
         <SettingRow
           colors={colors}
@@ -221,26 +232,6 @@ export default function SettingsScreen() {
           subtitle="View the full instruction manual"
           right={<Text style={s.chevron}>›</Text>}
           onPress={handleOpenManual}
-          isLast={false}
-        />
-        <SettingRow
-          colors={colors}
-          label="Background Scanning"
-          subtitle={
-            bgScanState === 'granted'
-              ? 'Always allowed'
-              : bgScanState === 'foreground_only'
-                ? 'Limited — tap to enable continuous scanning'
-                : bgScanState === 'denied'
-                  ? 'Disabled — tap to enable'
-                  : '…'
-          }
-          right={
-            bgScanState === 'granted'
-              ? <Text style={s.checkmark}>✓</Text>
-              : <Text style={s.chevron}>›</Text>
-          }
-          onPress={handleBgScanPress}
           isLast={true}
         />
       </View>
@@ -359,6 +350,15 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   },
   chevron: {
     color: c.textMuted, fontSize: 22, fontWeight: '400',
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  badge: {
+    backgroundColor: c.cyan, borderRadius: 10,
+    minWidth: 22, paddingHorizontal: 6, paddingVertical: 2,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  badgeText: {
+    color: c.bg, fontSize: 11, fontWeight: '700', letterSpacing: 0.5,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
   checkmark: {

@@ -139,6 +139,34 @@ export const api = {
 
   // Docs (public — no auth required)
   getManualUrl: () => request('GET', '/docs/manual-url'),
+
+  // Push notifications.
+  // Token register/revoke and feed/preferences endpoints all live under
+  // /api with mixed prefixes — see WestshoreWatch-Backend
+  // routes/notifications.js. revokePushToken does NOT require auth on
+  // the backend (the token itself is the secret); we still pass the
+  // current JWT if available for telemetry consistency.
+  registerPushToken: (token: string, platform: 'ios' | 'android') =>
+    request('POST', '/users/push-token', { token, platform }),
+  revokePushTokenServer: (token: string) =>
+    request('DELETE', '/users/push-token', { token }),
+  listNotifications: (params?: { limit?: number; before?: string }) => {
+    const qs: string[] = [];
+    if (params?.limit) qs.push(`limit=${encodeURIComponent(String(params.limit))}`);
+    if (params?.before) qs.push(`before=${encodeURIComponent(params.before)}`);
+    const tail = qs.length ? `?${qs.join('&')}` : '';
+    return request('GET', `/notifications${tail}`);
+  },
+  markNotificationRead: (id: string) =>
+    request('PATCH', `/notifications/${encodeURIComponent(id)}/read`),
+  markAllNotificationsRead: () =>
+    request('POST', '/notifications/read-all'),
+  getNotificationPreferences: () =>
+    request('GET', '/notifications/preferences'),
+  updateNotificationPreferences: (preferences: Record<string, boolean>) =>
+    request('PATCH', '/notifications/preferences', { preferences }),
+  sendTestNotification: () =>
+    request('POST', '/notifications/test', {}),
 };
 
 // WebSocket connection — auto-reconnecting with exponential backoff + keepalive.

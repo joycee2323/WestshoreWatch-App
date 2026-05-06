@@ -3,6 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import { api } from '../services/api';
 import { fetchNodes as fetchNodeRegistry, clearCache as clearNodeRegistry } from '../services/nodeRegistry';
 import { configureNativeUpload } from '../services/bleScanner';
+import { registerForPushNotifications, revokePushToken } from '../services/pushNotifications';
 
 interface AuthStore {
   token: string | null;
@@ -26,6 +27,11 @@ export const useAuthStore = create<AuthStore>((set) => ({
         set({ token, user: JSON.parse(userJson), isLoading: false });
         void configureNativeUpload(token);
         void fetchNodeRegistry();
+        // Re-register the device's push token on every cold start so a
+        // backend-side token reap (DeviceNotRegistered sweep) doesn't
+        // leave the user permanently unreachable. UPSERTs by token,
+        // so a no-op when the row is already current.
+        void registerForPushNotifications();
       } else {
         set({ isLoading: false });
       }
@@ -41,9 +47,15 @@ export const useAuthStore = create<AuthStore>((set) => ({
     set({ token: res.token, user: res.user });
     void configureNativeUpload(res.token);
     void fetchNodeRegistry();
+    void registerForPushNotifications();
   },
 
   logout: async () => {
+    // Revoke push token BEFORE clearing auth_token so the DELETE call
+    // doesn't strand the device on the user's row. The endpoint is
+    // unauthenticated, but keeping the order means a network failure
+    // at this step doesn't lose the local logout.
+    try { await revokePushToken(); } catch {}
     await SecureStore.deleteItemAsync('auth_token');
     await SecureStore.deleteItemAsync('auth_user');
     clearNodeRegistry();
