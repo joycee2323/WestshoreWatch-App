@@ -4,6 +4,7 @@ import {
   StyleSheet, Platform, Alert, ActivityIndicator,
   KeyboardAvoidingView, ScrollView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../services/api';
 
 const COLORS = {
@@ -18,6 +19,7 @@ const COLORS = {
 };
 
 export default function ChangePasswordScreen({ onDone }: { onDone: () => void }) {
+  const insets = useSafeAreaInsets();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -57,7 +59,7 @@ export default function ChangePasswordScreen({ onDone }: { onDone: () => void })
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       {/* Header */}
-      <View style={s.header}>
+      <View style={[s.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={onDone} style={s.backBtn}>
           <Text style={s.backText}>← Back</Text>
         </TouchableOpacity>
@@ -127,7 +129,7 @@ const styles = () => StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 56 : 40, paddingBottom: 12, paddingHorizontal: 16,
+    paddingBottom: 12, paddingHorizontal: 16,
     backgroundColor: COLORS.surface, borderBottomWidth: 1, borderBottomColor: COLORS.border,
   },
   backBtn: { width: 60 },
@@ -136,10 +138,11 @@ const styles = () => StyleSheet.create({
     color: COLORS.text, fontSize: 13, fontWeight: '700', letterSpacing: 3,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
-  body: { padding: 16, paddingBottom: 40 },
+  body: { padding: 16, paddingBottom: 40, alignItems: 'center', maxWidth: 480, width: '100%', alignSelf: 'center' },
   card: {
     backgroundColor: COLORS.surface, borderRadius: 8,
     borderWidth: 1, borderColor: COLORS.border, padding: 16, marginBottom: 16,
+    width: '100%', maxWidth: 480,
   },
   label: {
     color: COLORS.textMuted, fontSize: 10, letterSpacing: 2,
@@ -154,6 +157,7 @@ const styles = () => StyleSheet.create({
   submitBtn: {
     backgroundColor: COLORS.cyan, borderRadius: 8,
     padding: 16, alignItems: 'center',
+    width: '100%', maxWidth: 480,
   },
   submitText: {
     color: COLORS.bg, fontWeight: '700', fontSize: 13, letterSpacing: 2,

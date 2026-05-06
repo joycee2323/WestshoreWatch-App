@@ -173,7 +173,7 @@ export default function RegisterScreen({ navigation }: any) {
 
 const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   page: { flex: 1, backgroundColor: c.bg },
-  inner: { flexGrow: 1, justifyContent: 'center', padding: 28 },
+  inner: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 28, maxWidth: 480, width: '100%', alignSelf: 'center' },
   header: { alignItems: 'center', marginBottom: 32 },
   logo: {
     fontSize: 28, fontWeight: '700', letterSpacing: 6,
@@ -187,7 +187,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     fontSize: 10, color: c.textDim, marginTop: 4,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
-  form: { gap: 8 },
+  form: { gap: 8, width: '100%', maxWidth: 480 },
   label: {
     fontSize: 10, color: c.textMuted, letterSpacing: 2, marginBottom: 4, marginTop: 12,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',

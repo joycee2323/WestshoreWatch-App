@@ -3,7 +3,7 @@ module.exports = ({ config }) => ({
     name: 'Westshore Watch',
     slug: 'westshorewatch',
     version: '1.0.1',
-    orientation: 'portrait',
+    orientation: 'default',
     icon: './assets/icon.png',
     scheme: 'westshorewatch',
     userInterfaceStyle: 'automatic',

@@ -108,7 +108,7 @@ export default function LoginScreen({ navigation }: any) {
 
 const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   page: { flex: 1, backgroundColor: c.bg },
-  inner: { flex: 1, justifyContent: 'center', padding: 28 },
+  inner: { flex: 1, justifyContent: 'center', padding: 28, maxWidth: 480, width: '100%', alignSelf: 'center' },
   header: { alignItems: 'center', marginBottom: 48 },
   logo: {
     fontSize: 28, fontWeight: '700', letterSpacing: 6,

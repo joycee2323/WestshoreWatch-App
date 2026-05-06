@@ -4,6 +4,7 @@ import {
   Platform, Alert, ActivityIndicator, PermissionsAndroid,
 } from 'react-native';
 import MapboxGL from '@rnmapbox/maps';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDroneStore, DroneEntry } from '../store/droneStore';
 import { startBleScanning, stopBleScanning } from '../services/bleScanner';
 import { useTheme, getDroneColor } from '../theme';
@@ -34,6 +35,7 @@ async function requestAllPermissions(): Promise<boolean> {
 
 export default function GuestScanScreen({ navigation }: any) {
   const colors = useTheme();
+  const insets = useSafeAreaInsets();
   const { bleDrones, updateBleDrone, nearbyNodes } = useDroneStore();
   const updateNearbyNode = useDroneStore(s => s.updateNearbyNode);
   const [selectedDrone, setSelectedDrone] = useState<DroneEntry | null>(null);
@@ -128,7 +130,7 @@ export default function GuestScanScreen({ navigation }: any) {
       </MapboxGL.MapView>
 
       {/* Top bar */}
-      <View style={s.topBar}>
+      <View style={[s.topBar, { paddingTop: insets.top + 12 }]}>
         <View style={s.topLeft}>
           <Text style={s.appName}>WESTSHORE WATCH</Text>
           {Object.keys(nearbyNodes).length > 0 && (
@@ -226,7 +228,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   topBar: {
     position: 'absolute', top: 0, left: 0, right: 0,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 56 : 40, paddingHorizontal: 16, paddingBottom: 12,
+    paddingHorizontal: 16, paddingBottom: 12,
     backgroundColor: 'rgba(10,14,26,0.85)',
   },
   topLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -265,7 +267,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   },
   droneCore: { width: 8, height: 8, borderRadius: 4 },
   droneList: {
-    position: 'absolute', bottom: 20, left: 12, right: 12,
+    position: 'absolute', bottom: 20, left: 12, right: 12, maxWidth: 480, marginHorizontal: 'auto',
     backgroundColor: 'rgba(10,14,26,0.92)',
     borderRadius: 12, borderWidth: 1, borderColor: 'rgba(30,45,69,0.8)',
     maxHeight: 200, overflow: 'hidden',
@@ -286,7 +288,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
   detailSheet: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
+    position: 'absolute', bottom: 0, left: 0, right: 0, maxWidth: 600, marginHorizontal: 'auto',
     backgroundColor: 'rgba(17,24,39,0.97)',
     borderTopLeftRadius: 20, borderTopRightRadius: 20,
     borderTopWidth: 1, borderColor: 'rgba(30,45,69,0.8)',

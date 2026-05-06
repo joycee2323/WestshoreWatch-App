@@ -3,6 +3,7 @@ import {
   View, Text, TextInput, StyleSheet, TouchableOpacity, Platform, PermissionsAndroid, AppState, Linking, Alert, DeviceEventEmitter,
 } from 'react-native';
 import MapboxGL from '@rnmapbox/maps';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import KeepScreenOnToggle from '../components/KeepScreenOnToggle';
@@ -38,6 +39,7 @@ const loggedSkippedUasIds = new Set<string>();
 
 export default function LiveMapScreen() {
   const colors = useTheme();
+  const insets = useSafeAreaInsets();
 
   // Subscribe to render-relevant state with individual selectors so that
   // high-frequency BLE updates to nearbyNodes don't re-render the whole screen.
@@ -537,7 +539,7 @@ export default function LiveMapScreen() {
       </MapboxGL.MapView>
 
       {/* Deployment banner */}
-      <View style={s.topBar}>
+      <View style={[s.topBar, { paddingTop: insets.top + 12 }]}>
         <View>
           <Text style={s.appName}>WESTSHORE WATCH</Text>
           {activeDeployment && (
@@ -685,7 +687,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   topBar: {
     position: 'absolute', top: 0, left: 0, right: 0,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
-    paddingTop: Platform.OS === 'ios' ? 56 : 40, paddingHorizontal: 16, paddingBottom: 12,
+    paddingHorizontal: 16, paddingBottom: 12,
     backgroundColor: 'rgba(10,14,26,0.85)',
   },
   appName: {
@@ -761,7 +763,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
   detailSheet: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
+    position: 'absolute', bottom: 0, left: 0, right: 0, maxWidth: 600, marginHorizontal: 'auto',
     backgroundColor: 'rgba(17,24,39,0.97)',
     borderTopLeftRadius: 20, borderTopRightRadius: 20,
     borderTopWidth: 1, borderColor: c.border,

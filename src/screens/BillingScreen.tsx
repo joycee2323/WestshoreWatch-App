@@ -4,6 +4,7 @@ import {
   Platform, ActivityIndicator,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 
 const BILLING_URL = 'https://watch.westshoredrone.com/billing';
@@ -34,6 +35,7 @@ true;
 `;
 
 export default function BillingScreen({ onDone }: { onDone: () => void }) {
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [preloadJs, setPreloadJs] = useState<string | null>(null);
   const loadingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -62,7 +64,7 @@ export default function BillingScreen({ onDone }: { onDone: () => void }) {
 
   return (
     <View style={s.container}>
-      <View style={s.header}>
+      <View style={[s.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={onDone} style={s.backBtn}>
           <Text style={s.backText}>← Back</Text>
         </TouchableOpacity>
@@ -83,7 +85,6 @@ export default function BillingScreen({ onDone }: { onDone: () => void }) {
         domStorageEnabled
         thirdPartyCookiesEnabled
         sharedCookiesEnabled
-        userAgent="Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
       />
 
       {loading && (
@@ -99,7 +100,7 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 56 : 40, paddingBottom: 12, paddingHorizontal: 16,
+    paddingBottom: 12, paddingHorizontal: 16,
     backgroundColor: COLORS.surface, borderBottomWidth: 1, borderBottomColor: COLORS.border,
   },
   backBtn: { width: 60 },

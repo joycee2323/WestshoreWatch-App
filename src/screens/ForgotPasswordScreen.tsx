@@ -102,7 +102,7 @@ export default function ForgotPasswordScreen({ navigation }: any) {
 
 const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   page: { flex: 1, backgroundColor: c.bg },
-  inner: { flex: 1, justifyContent: 'center', padding: 28 },
+  inner: { flex: 1, justifyContent: 'center', padding: 28, maxWidth: 480, width: '100%', alignSelf: 'center' },
   header: { alignItems: 'center', marginBottom: 40 },
   logo: {
     fontSize: 28, fontWeight: '700', letterSpacing: 6,
