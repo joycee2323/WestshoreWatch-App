@@ -29,6 +29,14 @@ module.exports = ({ config }) => ({
       },
       package: 'com.westshoredrone.watch',
       versionCode: 1,
+      // FCM credentials for push delivery on standalone builds. EAS
+      // Build resolves GOOGLE_SERVICES_JSON (set as an EAS secret with
+      // type=file) and substitutes the path; the local fallback is
+      // ./google-services.json (gitignored, the source of truth for
+      // local builds and prebuild). The Google Services gradle plugin
+      // ALSO needs the file at android/app/google-services.json — see
+      // android/app/build.gradle apply plugin line.
+      googleServicesFile: process.env.GOOGLE_SERVICES_JSON || './google-services.json',
       permissions: [
         'BLUETOOTH',
         'BLUETOOTH_ADMIN',

@@ -1,3 +1,8 @@
+# EAS Build ignore list. Overrides .gitignore for EAS upload only.
+# git still ignores everything below — we just want EAS to include
+# google-services.json so the Google Services gradle plugin can read
+# it during the cloud build.
+
 .claude/
 .expo/web/
 node_modules
@@ -32,3 +37,10 @@ android/app/google-services.json
 *-firebase-adminsdk-*.json
 firebase-debug.log
 .firebase/
+
+# EAS Build needs these even though git ignores them. Negations must
+# come AFTER the matching ignore patterns to take effect. The Firebase
+# admin SDK service account stays ignored — that one is uploaded to
+# EAS as a credential, not bundled into the build.
+!google-services.json
+!android/app/google-services.json
