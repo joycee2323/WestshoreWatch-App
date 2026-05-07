@@ -254,17 +254,21 @@ export default function SettingsScreen() {
           subtitle="Verify push delivery on this device"
           right={<Text style={s.chevron}>›</Text>}
           onPress={handleSendTest}
-          isLast={false}
+          isLast={!__DEV__}
         />
-        {/* Debug-only — remove before production. Surfaces the last
-            registration outcome so we don't need adb logcat. */}
-        <SettingRow
-          colors={colors}
-          label="Push diagnostic"
-          subtitle="Debug: last registration outcome"
-          onPress={handleShowPushDiagnostic}
-          isLast={true}
-        />
+        {/* Debug-only — visible in dev builds only. Surfaces the last
+            registration outcome so we don't need adb logcat. The
+            handler + getLastRegistrationStatus stay in the file but
+            unused in production; the bundler tree-shakes the JSX. */}
+        {__DEV__ && (
+          <SettingRow
+            colors={colors}
+            label="Push diagnostic"
+            subtitle="Debug: last registration outcome"
+            onPress={handleShowPushDiagnostic}
+            isLast={true}
+          />
+        )}
       </View>
 
       {/* Change Password — all users */}
