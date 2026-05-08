@@ -44,7 +44,6 @@ module.exports = ({ config }) => ({
         'BLUETOOTH_CONNECT',
         'ACCESS_FINE_LOCATION',
         'ACCESS_COARSE_LOCATION',
-        'ACCESS_BACKGROUND_LOCATION',
         'FOREGROUND_SERVICE',
         'FOREGROUND_SERVICE_CONNECTED_DEVICE',
       ],

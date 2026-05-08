@@ -4,7 +4,6 @@ import {
 } from 'react-native';
 import MapboxGL from '@rnmapbox/maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import KeepScreenOnToggle from '../components/KeepScreenOnToggle';
 import { useDroneStore } from '../store/droneStore';
@@ -22,15 +21,6 @@ const NODE_REGISTRATION_URL = 'https://watch.westshoredrone.com/nodes';
 // keystroke while the operator is typing. Saves on settle.
 const NICKNAME_SAVE_DEBOUNCE_MS = 500;
 const NICKNAME_MAX = 30;
-// Tracks whether we've already prompted for ACCESS_BACKGROUND_LOCATION on this
-// install. Android requires the staged flow (foreground first, background
-// later) and will not re-show the system dialog if the user denied it once,
-// so re-prompting every launch is wasted work and gates user interaction.
-const BACKGROUND_LOCATION_PROMPTED_KEY = 'background_location_prompted_v1';
-// Delay before prompting for background location after the FG service starts.
-// Gives the user a moment to settle into the app so the second permission
-// dialog doesn't feel like a wall of prompts.
-const BACKGROUND_LOCATION_PROMPT_DELAY_MS = 30_000;
 
 // uasIds we've already logged a BLE-skip message for — keeps logcat readable
 // when the same drone is seen thousands of times. Bounded by distinct drones
@@ -116,9 +106,7 @@ export default function LiveMapScreen() {
   }, []);
 
   const [selectedDrone, setSelectedDrone] = useState<any>(null);
-  const [showBackgroundLocationBanner, setShowBackgroundLocationBanner] = useState(false);
   const [showPausedBanner, setShowPausedBanner] = useState(false);
-  const backgroundPromptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wsRef = useRef<ReconnectingWebSocket | null>(null);
   const cameraRef = useRef<MapboxGL.Camera>(null);
   const timeouts = useRef<Record<string, any>>({});
@@ -179,14 +167,7 @@ export default function LiveMapScreen() {
         (mac, rssi) => {
           updateNearbyNode(mac, rssi);
         }
-      ).then(() => {
-        // FG service is up — schedule the deferred background-location prompt.
-        // Android requires foreground location to be granted first, which the
-        // initial requestPermissions() handled.
-        backgroundPromptTimer.current = setTimeout(() => {
-          void maybePromptBackgroundLocation();
-        }, BACKGROUND_LOCATION_PROMPT_DELAY_MS);
-      }).catch((err: any) => {
+      ).catch((err: any) => {
         // Native module rejected — most likely the FG service didn't actually
         // come up (BLE_SERVICE_NOT_RUNNING). Surface to the user instead of
         // silently failing.
@@ -209,7 +190,6 @@ export default function LiveMapScreen() {
       wsRef.current?.close();
       stopBleScanning();
       if (refetchDebounceTimer.current) clearTimeout(refetchDebounceTimer.current);
-      if (backgroundPromptTimer.current) clearTimeout(backgroundPromptTimer.current);
       // Cancel any pending nickname-save debounces. The pending edits will
       // be lost; on next mount, the server-side state hydrates via getDroneNicknames.
       Object.values(nicknameSaveTimers.current).forEach(t => clearTimeout(t));
@@ -275,35 +255,6 @@ export default function LiveMapScreen() {
         'android.permission.POST_NOTIFICATIONS' as any,
       );
       console.log('Notification permission:', notifResult);
-    }
-  };
-
-  // Deferred background-location prompt. Android 12+ no longer gates BLE scans
-  // on this (BLUETOOTH_SCAN now uses neverForLocation), but on Android 10/11 —
-  // and as a defense-in-depth signal to the OS — we still want it granted so
-  // the FG service runs without throttling once the screen is off.
-  // Called ~30s after the FG service starts so the user has settled into the
-  // app before seeing the second permission dialog.
-  const maybePromptBackgroundLocation = async () => {
-    if (Platform.OS !== 'android') return;
-    try {
-      const already = await AsyncStorage.getItem(BACKGROUND_LOCATION_PROMPTED_KEY);
-      if (already) return;
-      const fg = await Location.getForegroundPermissionsAsync();
-      if (fg.status !== 'granted') return;
-      const existing = await Location.getBackgroundPermissionsAsync();
-      if (existing.status === 'granted') {
-        await AsyncStorage.setItem(BACKGROUND_LOCATION_PROMPTED_KEY, '1');
-        return;
-      }
-      const res = await Location.requestBackgroundPermissionsAsync();
-      await AsyncStorage.setItem(BACKGROUND_LOCATION_PROMPTED_KEY, '1');
-      console.log('Background location permission:', res.status);
-      if (res.status !== 'granted') {
-        setShowBackgroundLocationBanner(true);
-      }
-    } catch (err) {
-      console.warn('[livemap] background location prompt failed:', err);
     }
   };
 
@@ -577,26 +528,6 @@ export default function LiveMapScreen() {
           </View>
           <Text style={s.noNodesArrow}>→</Text>
         </TouchableOpacity>
-      )}
-
-      {/* Background-location prompt result: dismissible until next launch */}
-      {showBackgroundLocationBanner && (
-        <View style={s.bgLocBanner}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.bgLocTitle}>BACKGROUND SCANNING LIMITED</Text>
-            <Text style={s.bgLocSub}>
-              Background scanning may stop when the screen turns off. To keep monitoring continuously, grant "Allow all the time" for location in app settings.
-            </Text>
-            <View style={s.bgLocActions}>
-              <TouchableOpacity onPress={() => Linking.openSettings()} activeOpacity={0.7}>
-                <Text style={s.bgLocAction}>OPEN SETTINGS</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setShowBackgroundLocationBanner(false)} activeOpacity={0.7}>
-                <Text style={s.bgLocDismiss}>DISMISS</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
       )}
 
       {showPausedBanner && (
