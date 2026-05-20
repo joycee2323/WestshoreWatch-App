@@ -120,33 +120,17 @@ export default function DeploymentsScreen() {
       }
       scheduledFor = scheduledDate.toISOString();
     }
+    if (mode === 'event' && createPreassignNodeIds.length === 0) {
+      Alert.alert('Pick a node', 'Select at least one node to assign to this deployment.');
+      return;
+    }
     setCreating(true);
     try {
-      const res = await api.createDeployment(newName.trim(), scheduledFor, mode);
+      const nodeIds = mode === 'event' ? createPreassignNodeIds : undefined;
+      const res = await api.createDeployment(newName.trim(), scheduledFor, mode, nodeIds);
 
-      // Pre-assignment only applies to scheduled deployments. Fire in
-      // parallel; collect per-call warnings and failures. Joined into a
-      // single Alert at the end so the operator doesn't get spammed with
-      // modal dialogs on a multi-node selection.
       const messages: string[] = [];
       if (res?.warning) messages.push(res.warning);
-      if (scheduledFor && res?.id && createPreassignNodeIds.length > 0) {
-        const settled = await Promise.all(
-          createPreassignNodeIds.map(nodeId =>
-            api.addPreassignedNode(res.id, nodeId)
-              .then((r: any) => ({ ok: true, r, nodeId }))
-              .catch((e: any) => ({ ok: false, err: e, nodeId }))
-          )
-        );
-        for (const s of settled) {
-          if (!s.ok) {
-            const node = orgNodes.find(n => n.id === s.nodeId);
-            messages.push(`Pre-assign failed for ${node?.name || 'node'}: ${(s as any).err?.message || 'request failed'}`);
-          } else if ((s as any).r?.warnings?.length) {
-            for (const w of (s as any).r.warnings) messages.push(w);
-          }
-        }
-      }
 
       setNewName('');
       setMode('event');
@@ -383,9 +367,9 @@ export default function DeploymentsScreen() {
           </TouchableOpacity>
         )}
 
-        {mode === 'event' && scheduleLater && orgNodes.length > 0 && (
+        {mode === 'event' && orgNodes.length > 0 && (
           <View style={s.createPreassignSection}>
-            <Text style={s.preassignLabel}>PRE-ASSIGN NODES (OPTIONAL)</Text>
+            <Text style={s.preassignLabel}>ASSIGN NODES (REQUIRED — AT LEAST ONE)</Text>
             <View style={s.chipRow}>
               {orgNodes.map(n => {
                 const selected = createPreassignNodeIds.includes(n.id);
@@ -405,16 +389,26 @@ export default function DeploymentsScreen() {
                 );
               })}
             </View>
+            {createPreassignNodeIds.length === 0 && (
+              <Text style={[s.preassignHint, { color: colors.amber }]}>
+                Select at least one node to assign.
+              </Text>
+            )}
             <Text style={s.preassignHint}>
-              Pre-assigned nodes are force-reassigned to this deployment at activation, regardless of their current state.
+              {scheduleLater
+                ? 'Selected nodes are force-reassigned to this deployment at activation, regardless of their current state.'
+                : 'Selected nodes are bound to this deployment immediately, replacing any prior assignment.'}
             </Text>
           </View>
         )}
 
         <TouchableOpacity
-          style={[s.btn, (!canCreate || creating) && s.btnDisabled]}
+          style={[
+            s.btn,
+            (!canCreate || creating || (mode === 'event' && createPreassignNodeIds.length === 0)) && s.btnDisabled,
+          ]}
           onPress={handleCreate}
-          disabled={!canCreate || creating}
+          disabled={!canCreate || creating || (mode === 'event' && createPreassignNodeIds.length === 0)}
         >
           {creating
             ? <ActivityIndicator color="#000" size="small" />

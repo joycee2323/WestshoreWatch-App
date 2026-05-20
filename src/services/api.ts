@@ -69,10 +69,18 @@ export const api = {
 
   // Deployments
   getDeployments: () => request('GET', '/deployments'),
-  createDeployment: (name: string, scheduledFor?: string, mode?: 'event' | 'continuous') => {
+  // Event deployments require nodeIds (>=1). Continuous deployments ignore
+  // them entirely on the backend, so callers can omit for continuous.
+  createDeployment: (
+    name: string,
+    scheduledFor?: string,
+    mode?: 'event' | 'continuous',
+    nodeIds?: string[],
+  ) => {
     const body: any = { name };
     if (mode) body.mode = mode;
     if (scheduledFor) body.scheduled_for = scheduledFor;
+    if (Array.isArray(nodeIds) && nodeIds.length > 0) body.node_ids = nodeIds;
     return request('POST', '/deployments', body);
   },
   closeDeployment: (id: string) => request('POST', `/deployments/${id}/close`),
