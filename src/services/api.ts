@@ -1,10 +1,80 @@
 import * as SecureStore from 'expo-secure-store';
+import Constants from 'expo-constants';
+import * as Device from 'expo-device';
+import { Platform } from 'react-native';
 
 const BASE = 'https://api.westshoredrone.com/api';
 
 async function getToken(): Promise<string | null> {
   return SecureStore.getItemAsync('auth_token');
 }
+
+// Build the X-Client-* headers once at module load. The backend uses
+// these to populate the per-user diagnostic columns in `users` (via
+// the authenticate middleware) and the matching fields on every
+// login_audit row, so the super-admin dashboard can answer "what app
+// build and device is this user on" without grepping logs.
+//
+// Values are sourced from expo-constants nativeApplicationVersion /
+// nativeBuildVersion (which read android/app/build.gradle versionName
+// and versionCode at runtime — the actual shipped values, not the
+// often-stale ones in app.config.js) plus expo-device for the OS
+// and model info. Platform.OS gives 'android' | 'ios'.
+//
+// Every field is independently optional — a null/missing value just
+// means the header is omitted, and the corresponding DB column stays
+// at whatever the prior request populated (last_seen_at uses COALESCE
+// on the diagnostic columns). Wrapped in try/catch so a native-module
+// init failure can never break app boot — telemetry is nice-to-have,
+// the API client itself is critical-path.
+//
+// Frozen so a future caller can't accidentally mutate the shared
+// header object across requests.
+function buildClientHeaders(): Readonly<Record<string, string>> {
+  try {
+    const out: Record<string, string> = {};
+
+    const version = Constants.nativeApplicationVersion;
+    if (typeof version === 'string' && version.length > 0) {
+      out['X-Client-Version'] = version;
+    }
+
+    // nativeBuildVersion is a string ('12'); coerce + sanity-check
+    // before sending. Backend re-validates and drops non-numeric or
+    // out-of-INTEGER-range values.
+    const buildStr = Constants.nativeBuildVersion;
+    if (typeof buildStr === 'string' && buildStr.length > 0) {
+      const buildNum = parseInt(buildStr, 10);
+      if (Number.isFinite(buildNum) && buildNum >= 0) {
+        out['X-Client-Build'] = String(buildNum);
+      }
+    }
+
+    if (Platform.OS === 'android' || Platform.OS === 'ios') {
+      out['X-Client-Platform'] = Platform.OS;
+    }
+
+    const osName = Device.osName;
+    const osVersion = Device.osVersion;
+    if (osName && osVersion) {
+      out['X-Client-OS'] = `${osName} ${osVersion}`;
+    } else if (typeof osName === 'string' && osName.length > 0) {
+      out['X-Client-OS'] = osName;
+    }
+
+    const deviceModel = Device.modelName;
+    if (typeof deviceModel === 'string' && deviceModel.length > 0) {
+      out['X-Client-Device'] = deviceModel;
+    }
+
+    return Object.freeze(out);
+  } catch (err) {
+    console.warn('[api] buildClientHeaders failed:', err);
+    return Object.freeze({});
+  }
+}
+
+const CLIENT_HEADERS = buildClientHeaders();
 
 async function request(
   method: string,
@@ -18,6 +88,7 @@ async function request(
     method,
     headers: {
       'Content-Type': 'application/json',
+      ...CLIENT_HEADERS,
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(extraHeaders || {}),
     },

@@ -23,6 +23,18 @@ const BLEScanner = NativeBLEScanner as unknown as {
 
 const UPLOAD_BASE_URL = 'https://api.westshoredrone.com';
 
+// TODO(follow-up): detection uploads from the Kotlin foreground service
+// (DetectionUploader.kt) do NOT carry the X-Client-* diagnostic headers
+// that services/api.ts injects on every JS-issued fetch. The native
+// BLEScanner.configure() signature only accepts { baseUrl, authToken },
+// so adding the headers requires either extending the native module's
+// configure() schema or wiring a separate JS-managed header bag through
+// the upload path. Detection uploads are also api-key auth'd (per-node
+// X-Node-API-Key, see backend authenticateNode), not user-JWT auth'd,
+// so they wouldn't move users.last_seen_at anyway — the missing
+// headers would only be useful for future per-node device telemetry.
+// Out of scope for the user-activity-tracking PR.
+
 // Push the current bearer token into the native uploader. Called on login,
 // logout, token refresh, and right before we start scanning so the Kotlin
 // service can POST detections without waiting for the JS thread (which Doze
