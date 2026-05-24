@@ -21,6 +21,13 @@ const SECTIONS: PrefSection[] = [
     ],
   },
   {
+    heading: 'BOUNDARIES',
+    rows: [
+      { kind: 'proximity_entry', label: 'Drone entered facility boundary' },
+      { kind: 'proximity_linger', label: 'Drone lingering in facility boundary' },
+    ],
+  },
+  {
     heading: 'DEPLOYMENTS',
     rows: [
       { kind: 'deployment_paused', label: 'Deployment paused' },
