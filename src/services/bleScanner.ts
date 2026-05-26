@@ -21,6 +21,14 @@ const BLEScanner = NativeBLEScanner as unknown as {
   removeListeners: (count: number) => void;
 };
 
+if (Platform.OS === 'android' && !BLEScanner) {
+  console.error(
+    '[bleScanner] Native BLEScanner module not registered on Android. ' +
+    'Verify the TurboModule is registered in the native binary. ' +
+    'BLE scanning will not work until this is resolved.'
+  );
+}
+
 const UPLOAD_BASE_URL = 'https://api.westshoredrone.com';
 
 // TODO(follow-up): detection uploads from the Kotlin foreground service

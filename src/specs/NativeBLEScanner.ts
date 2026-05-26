@@ -10,4 +10,7 @@ export interface Spec extends TurboModule {
   stopService(): Promise<void>;
 }
 
-export default TurboModuleRegistry.getEnforcing<Spec>('BLEScanner');
+// Android-only: iOS is viewer-only and has no BLE native module. Using get()
+// (returns null) instead of getEnforcing() (throws) so the iOS bundle loads
+// without crashing. bleScanner.ts null-guards every call site.
+export default TurboModuleRegistry.get<Spec>('BLEScanner');
