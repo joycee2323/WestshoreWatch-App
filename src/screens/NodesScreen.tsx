@@ -10,7 +10,7 @@ import { useNavigation } from '@react-navigation/native';
 import { api } from '../services/api';
 import { useTheme } from '../theme';
 import { useAuthStore } from '../store/authStore';
-import { caps } from '../lib/caps';
+import { useCaps } from '../lib/useCaps';
 
 // Sort matches the backend (display_order ASC NULLS LAST, name ASC). This is a
 // client-side safety net — the backend already returns nodes pre-sorted, but
@@ -34,7 +34,7 @@ export default function NodesScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const user = useAuthStore(s => s.user);
-  const c = caps(user);
+  const c = useCaps(user);
   const [nodes, setNodes] = useState<any[]>([]);
   const [deployments, setDeployments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -222,7 +222,7 @@ export default function NodesScreen() {
           <Text style={s.title}>NODES</Text>
           <Text style={s.subtitle}>{nodes.length} node{nodes.length !== 1 ? 's' : ''} registered</Text>
         </View>
-        {nodes.length > 0 && c.canPairNode && (
+        {nodes.length > 0 && c.canPairNodeOnThisDevice && (
           <TouchableOpacity style={s.addBtn} onPress={handleAddNode} activeOpacity={0.8}>
             <Text style={s.addBtnText}>+ ADD</Text>
           </TouchableOpacity>
@@ -329,11 +329,11 @@ export default function NodesScreen() {
         <View style={s.empty}>
           <Text style={s.emptyText}>NO NODES</Text>
           <Text style={s.emptyHint}>
-            {c.canPairNode
+            {c.canPairNodeOnThisDevice
               ? 'Claim a nearby node to start detecting drones'
               : 'No nodes have been registered for your organization yet.'}
           </Text>
-          {c.canPairNode && (
+          {c.canPairNodeOnThisDevice && (
             <TouchableOpacity
               style={s.registerBtn}
               onPress={handleAddNode}

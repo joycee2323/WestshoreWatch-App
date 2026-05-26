@@ -14,7 +14,7 @@ import { OP_STATUS_AIRBORNE } from '../services/odidParser';
 import { startBleScanning, stopBleScanning } from '../services/bleScanner';
 import { fetchNodes as fetchNodeRegistry, getNodeByMac } from '../services/nodeRegistry';
 import * as Location from 'expo-location';
-import { caps } from '../lib/caps';
+import { useCaps } from '../lib/useCaps';
 
 // Debounce window for nickname edits — avoids hammering the backend on every
 // keystroke while the operator is typing. Saves on settle.
@@ -67,7 +67,7 @@ export default function LiveMapScreen() {
 
   const orgId = useAuthStore(s => s.user?.org_id);
   const user = useAuthStore(s => s.user);
-  const c = caps(user);
+  const c = useCaps(user);
 
   // Initial nickname hydrate — once we know the user's org, fetch the
   // server-side map. Without this, nicknames only appear once a drone is
@@ -275,42 +275,37 @@ export default function LiveMapScreen() {
       // initialize with the correct OS state on first mount.
       setPermissionResolved(true);
       loadActiveDeployment();
-      startBleScanning(
-        det => {
-          // When a deployment is active, positions come from the backend's
-          // coalesced WS stream. Routing raw BLE parses into the store here
-          // would flicker the marker, since nodes rebroadcast each drone's
-          // ODID independently and the phone receives ~5 Hz per node.
-          if (activeDeploymentRef.current) {
-            if (det.uasId && !loggedSkippedUasIds.has(det.uasId)) {
-              loggedSkippedUasIds.add(det.uasId);
-              console.info(`[livemap] skipping BLE write for uasId=${det.uasId} — backend-authoritative`);
+      if (Platform.OS === 'android') {
+        startBleScanning(
+          det => {
+            if (activeDeploymentRef.current) {
+              if (det.uasId && !loggedSkippedUasIds.has(det.uasId)) {
+                loggedSkippedUasIds.add(det.uasId);
+                console.info(`[livemap] skipping BLE write for uasId=${det.uasId} — backend-authoritative`);
+              }
+              return;
             }
-            return;
+            if (det.uasId) updateBleDrone(det.uasId, det);
+          },
+          (mac, rssi) => {
+            updateNearbyNode(mac, rssi);
           }
-          if (det.uasId) updateBleDrone(det.uasId, det);
-        },
-        (mac, rssi) => {
-          updateNearbyNode(mac, rssi);
-        }
-      ).catch((err: any) => {
-        // Native module rejected — most likely the FG service didn't actually
-        // come up (BLE_SERVICE_NOT_RUNNING). Surface to the user instead of
-        // silently failing.
-        const code = err?.code || err?.userInfo?.code;
-        const msg = err?.message || 'Background scanning could not start.';
-        console.warn('[livemap] startBleScanning failed:', code, msg);
-        if (code === 'BLE_SERVICE_NOT_RUNNING') {
-          Alert.alert(
-            'Scanning unavailable',
-            `${msg}\n\nTap Open Settings to grant the required permissions.`,
-            [
-              { text: 'Dismiss', style: 'cancel' },
-              { text: 'Open Settings', onPress: () => Linking.openSettings() },
-            ],
-          );
-        }
-      });
+        ).catch((err: any) => {
+          const code = err?.code || err?.userInfo?.code;
+          const msg = err?.message || 'Background scanning could not start.';
+          console.warn('[livemap] startBleScanning failed:', code, msg);
+          if (code === 'BLE_SERVICE_NOT_RUNNING') {
+            Alert.alert(
+              'Scanning unavailable',
+              `${msg}\n\nTap Open Settings to grant the required permissions.`,
+              [
+                { text: 'Dismiss', style: 'cancel' },
+                { text: 'Open Settings', onPress: () => Linking.openSettings() },
+              ],
+            );
+          }
+        });
+      }
     }).catch((err: any) => {
       // Fail open: a catastrophic permission-request failure shouldn't
       // strand the user on the spinner. Unblock the render so the rest
@@ -1030,7 +1025,7 @@ export default function LiveMapScreen() {
           {isPassive && (
             <Text style={s.passiveBadge}>◌ PASSIVE</Text>
           )}
-          {nearbyNodeCount > 0 && (
+          {Platform.OS === 'android' && nearbyNodeCount > 0 && (
             <Text style={s.nodeNearby}>📡 NODE IN RANGE</Text>
           )}
         </View>
@@ -1050,7 +1045,7 @@ export default function LiveMapScreen() {
       </View>
 
       {/* No-nodes prompt for users who skipped onboarding */}
-      {userHasAnyNode === false && (
+      {userHasAnyNode === false && c.canPairNodeOnThisDevice && (
         <TouchableOpacity
           style={s.noNodesBanner}
           onPress={() => navigation.navigate('AddNode')}

@@ -14,7 +14,7 @@ import {
 } from '../services/bleScanner';
 import { useTheme } from '../theme';
 import { useAuthStore } from '../store/authStore';
-import { caps } from '../lib/caps';
+import { useCaps } from '../lib/useCaps';
 
 // Mirrors the same permissions request LiveMapScreen issues right before
 // it starts BLE scanning. Inlined (not exported from a shared helper) for
@@ -45,8 +45,8 @@ export default function AddNodeScreen() {
   const colors = useTheme();
   const navigation = useNavigation<any>();
   const user = useAuthStore(s => s.user);
-  const c = caps(user);
-  const canPairNode = c.canPairNode;
+  const c = useCaps(user);
+  const canPairNode = c.canPairNodeOnThisDevice;
   const [unclaimed, setUnclaimed] = useState<DiscoveredNode[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [claiming, setClaiming] = useState<string | null>(null);
@@ -193,6 +193,26 @@ export default function AddNodeScreen() {
   }, [claim]);
 
   const s = styles(colors);
+
+  if (Platform.OS === 'ios') {
+    return (
+      <ScrollView style={s.page} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+        <Text style={s.title}>ADD NODE</Text>
+        <View style={s.empty}>
+          <Text style={s.emptyText}>PAIRING UNAVAILABLE ON iOS</Text>
+          <Text style={s.emptyHint}>
+            Westshore Watch portable nodes (M1, X1) pair with an Android companion device that
+            handles Remote ID detection relay. Sentinel stationary nodes pair through their own
+            setup process.
+          </Text>
+          <Text style={s.emptyHint}>
+            Once a node is paired on your Android device, it appears here automatically — including
+            on this iPhone.
+          </Text>
+        </View>
+      </ScrollView>
+    );
+  }
 
   if (!canPairNode) {
     return (

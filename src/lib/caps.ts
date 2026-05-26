@@ -8,7 +8,7 @@
 // authStore.user is typed as `any` (no User interface defined upstream),
 // so we accept the same and only read the two fields we need.
 
-type CapsUser = {
+export type CapsUser = {
   role?: 'super_admin' | 'org_admin' | 'operator' | 'viewer' | string | null;
   is_super_admin?: boolean;
 } | null | undefined;
