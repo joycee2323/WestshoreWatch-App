@@ -16,10 +16,17 @@ module.exports = ({ config }) => ({
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.westshoredrone.watch',
+      buildNumber: '1',
+      config: {
+        usesNonExemptEncryption: false,
+      },
       infoPlist: {
-        NSBluetoothAlwaysUsageDescription: 'Westshore Watch uses Bluetooth to detect nearby drones broadcasting Remote ID signals.',
-        NSLocationWhenInUseUsageDescription: 'Westshore Watch uses your location to show detected drones relative to your position.',
-        NSLocationAlwaysAndWhenInUseUsageDescription: 'Westshore Watch uses your location to show detected drones relative to your position.',
+        NSLocationWhenInUseUsageDescription:
+          'Westshore Watch uses your location to center the map on your area and show nearby detections.',
+        ITSAppUsesNonExemptEncryption: false,
+      },
+      entitlements: {
+        'aps-environment': 'production',
       },
     },
     android: {
@@ -72,6 +79,8 @@ module.exports = ({ config }) => ({
         'expo-notifications',
         {
           color: '#00d4ff',
+          mode: 'production',
+          enableBackgroundRemoteNotifications: true,
         },
       ],
     ],
