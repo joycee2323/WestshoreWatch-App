@@ -1,24 +1,43 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { NativeModules, Platform, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme';
 
 export const KEEP_SCREEN_ON_STORAGE_KEY = 'keep_screen_on';
 
-type KeepScreenOnNative = {
-  activate: () => Promise<void>;
-  deactivate: () => Promise<void>;
+// Android uses a custom Kotlin native module (KeepScreenOnModule.kt) because
+// expo-keep-awake's Android path resolves the Activity through the legacy Expo
+// moduleRegistry ActivityProvider, which silently fails under Bridgeless / New
+// Architecture (ERR_NO_ACTIVITY). iOS uses expo-keep-awake directly — the iOS
+// Swift implementation uses UIApplication.shared.isIdleTimerDisabled and does
+// not go through ActivityProvider.
+//
+// On Android the tag is diagnostic-only (single global FLAG_KEEP_SCREEN_ON,
+// last call wins). On iOS the tag is honored via expo-keep-awake's ref-counted
+// tag set. In practice the difference doesn't manifest because only one
+// KeepScreenOnToggle is mounted at a time.
+type KeepAwakeAdapter = {
+  activate: (tag: string) => Promise<void>;
+  deactivate: (tag: string) => Promise<void>;
 };
 
-const keepScreenOn: KeepScreenOnNative | null =
-  Platform.OS === 'android'
-    ? ((NativeModules as { KeepScreenOn?: KeepScreenOnNative }).KeepScreenOn ?? null)
-    : null;
+const keepAwake: KeepAwakeAdapter = Platform.OS === 'android'
+  ? (() => {
+      const native = (NativeModules as { KeepScreenOn?: { activate: () => Promise<void>; deactivate: () => Promise<void> } }).KeepScreenOn;
+      return {
+        activate: (_tag: string) => native ? native.activate() : Promise.resolve(),
+        deactivate: (_tag: string) => native ? native.deactivate() : Promise.resolve(),
+      };
+    })()
+  : {
+      activate: (tag: string) => activateKeepAwakeAsync(tag),
+      deactivate: (tag: string) => deactivateKeepAwake(tag),
+    };
 
 type Props = {
-  /** Diagnostic-only tag echoed in [keepAwake] logs so concurrent callers are distinguishable. */
   keepAwakeTag: string;
 };
 
@@ -46,17 +65,16 @@ export default function KeepScreenOnToggle({ keepAwakeTag }: Props) {
 
   useFocusEffect(
     useCallback(() => {
-      console.info('[keepAwake] focus effect, tag=', keepAwakeTag, 'enabled=', enabled, 'nativeAvailable=', !!keepScreenOn);
-      if (enabled && keepScreenOn) {
+      console.info('[keepAwake] focus effect, tag=', keepAwakeTag, 'enabled=', enabled);
+      if (enabled) {
         console.info('[keepAwake] calling activate, tag=', keepAwakeTag);
-        keepScreenOn.activate()
+        keepAwake.activate(keepAwakeTag)
           .then(() => console.info('[keepAwake] activate resolved, tag=', keepAwakeTag))
           .catch(err => console.warn('[keepAwake] activate rejected, tag=', keepAwakeTag, 'err=', err));
       }
       return () => {
-        if (!keepScreenOn) return;
         console.info('[keepAwake] cleanup, calling deactivate, tag=', keepAwakeTag);
-        keepScreenOn.deactivate()
+        keepAwake.deactivate(keepAwakeTag)
           .then(() => console.info('[keepAwake] deactivate resolved, tag=', keepAwakeTag))
           .catch(err => console.warn('[keepAwake] deactivate rejected, tag=', keepAwakeTag, 'err=', err));
       };
