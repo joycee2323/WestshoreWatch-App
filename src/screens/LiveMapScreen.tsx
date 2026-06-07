@@ -920,6 +920,20 @@ export default function LiveMapScreen() {
           scheduleRefetchNodes();
         }
       }
+      if (msg.type === 'NODE_POSITION') {
+        // Live position from a moving node's heartbeat (or detection). Update
+        // the marker coords in whichever list holds the node (active or
+        // passive) so it tracks without a full refetch. Returning the same
+        // array reference when the node isn't present makes React skip the
+        // re-render — NODE_POSITION can arrive frequently for a mobile node.
+        const move = (prev: any[]) => prev.some((n: any) => n.id === msg.node_id)
+          ? prev.map((n: any) => n.id === msg.node_id
+              ? { ...n, last_lat: msg.lat, last_lon: msg.lon }
+              : n)
+          : prev;
+        setNodes(move);
+        setPassiveNodes(move);
+      }
     }, {
       // After an unexpected close + reconnect, the WS resumes live updates
       // but the client's in-memory state is stale for whatever window the
