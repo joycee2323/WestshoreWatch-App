@@ -174,6 +174,12 @@ export const api = {
   // Nodes
   getNodes: (deploymentId?: string) =>
     request('GET', deploymentId ? `/deployments/${deploymentId}/nodes` : '/deployments/nodes'),
+  // Nodes for a specific set of deployments in one request. Backend filters
+  // by the caller's deployment grant scope AND the ?deployment_ids list, so
+  // a non-granted id contributes nothing (fail-closed). Used by the Live
+  // Map's "All active" selection. Empty list → no request (caller guards).
+  getNodesForDeployments: (deploymentIds: string[]) =>
+    request('GET', `/deployments/nodes?deployment_ids=${encodeURIComponent(deploymentIds.join(','))}`),
   assignNode: (nodeId: string, deploymentId: string) =>
     request('PATCH', `/deployments/nodes/${nodeId}/assign`, { deployment_id: deploymentId }),
   unassignNode: (nodeId: string) =>
@@ -210,6 +216,16 @@ export const api = {
     request('GET', `/orgs/${orgId}/drone-nicknames`),
   setDroneNickname: (orgId: string, uasId: string, nickname: string) =>
     request('PATCH', `/orgs/${orgId}/drones/${encodeURIComponent(uasId)}/nickname`, { nickname }),
+
+  // Facility geofences (per-org boundaries). Own-org scoped on the backend
+  // (`WHERE org_id = <viewer's org>`), so a cross-org grantee receives only
+  // their OWN boundaries, never the grantor's. Each row carries a
+  // materialized GeoJSON Feature wrapping a Polygon in `geometry` — the app
+  // renders geometry.geometry.coordinates[0] directly as an opaque ring
+  // (no circle/center/radius assumptions; prod boundaries are arbitrary
+  // polygons, not just pre-expanded circles).
+  listFacilityGeofences: () =>
+    request('GET', '/orgs/me/facility-geofences'),
 
   // Billing
   getBillingStatus: () => request('GET', '/billing/status'),
