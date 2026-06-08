@@ -40,6 +40,14 @@ export default function DeploymentsScreen() {
   // Inline add-pre-assigned-node picker target on scheduled cards. Null
   // when closed; the deployment id when open. Only one open at a time.
   const [addPickerFor, setAddPickerFor] = useState<string | null>(null);
+  // Orgs the user can create/operate in (home + org-operate grants). Drives the
+  // "Create in" selector (only when length > 1) and the team badge.
+  const [operableOrgs, setOperableOrgs] = useState<any[]>([]);
+  const [createOrgId, setCreateOrgId] = useState<string | null>(null);
+  const [createOrgNodes, setCreateOrgNodes] = useState<any[]>([]);
+  const ownOrgId = user?.org_id;
+  const operableOrgIds = new Set((operableOrgs || []).map((o: any) => o.id));
+  const canOperate = (dep: any) => dep.org_id === ownOrgId || operableOrgIds.has(dep.org_id);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 60_000);
@@ -48,14 +56,16 @@ export default function DeploymentsScreen() {
 
   const load = useCallback(async () => {
     try {
-      const [deps, bill, nodes] = await Promise.all([
+      const [deps, bill, nodes, orgs] = await Promise.all([
         api.getDeployments(),
         api.getBillingStatus(),
         api.getNodes(),
+        api.getOperableOrgs().catch(() => []),
       ]);
       setDeployments(deps);
       setBilling(bill);
       setOrgNodes(Array.isArray(nodes) ? nodes : []);
+      setOperableOrgs(Array.isArray(orgs) ? orgs : []);
     } catch (err: any) {
       Alert.alert('Error', err.message);
     } finally {
@@ -65,6 +75,28 @@ export default function DeploymentsScreen() {
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  // Default the create target to the home org when operable, else the first
+  // operable (team) org — so a plain-user grantee lands on the team org.
+  useEffect(() => {
+    if (createOrgId == null && operableOrgs.length > 0) {
+      const home = operableOrgs.find((o: any) => o.is_home);
+      setCreateOrgId((home || operableOrgs[0]).id);
+    }
+  }, [operableOrgs, createOrgId]);
+
+  // Load the target org's assignable node pool when creating into a team org.
+  useEffect(() => {
+    if (createOrgId && ownOrgId && createOrgId !== ownOrgId) {
+      api.getOrgAssignableNodes(createOrgId).then(setCreateOrgNodes).catch(() => setCreateOrgNodes([]));
+    } else {
+      setCreateOrgNodes([]);
+    }
+  }, [createOrgId, ownOrgId]);
+
+  // Node pool shown in the create form: target-org assignable pool when
+  // creating into a team org, else the home-org node list.
+  const effectiveCreateNodes = (createOrgId && createOrgId !== ownOrgId) ? createOrgNodes : orgNodes;
 
   // Android has no native datetime mode — chain date then time imperatively.
   const openAndroidPicker = () => {
@@ -127,7 +159,8 @@ export default function DeploymentsScreen() {
     setCreating(true);
     try {
       const nodeIds = mode === 'event' ? createPreassignNodeIds : undefined;
-      const res = await api.createDeployment(newName.trim(), scheduledFor, mode, nodeIds);
+      const targetOrgId = (createOrgId && createOrgId !== ownOrgId) ? createOrgId : undefined;
+      const res = await api.createDeployment(newName.trim(), scheduledFor, mode, nodeIds, targetOrgId);
 
       const messages: string[] = [];
       if (res?.warning) messages.push(res.warning);
@@ -137,6 +170,7 @@ export default function DeploymentsScreen() {
       setScheduleLater(false);
       setScheduledDate(null);
       setCreatePreassignNodeIds([]);
+      setCreateOrgId(ownOrgId);
       if (messages.length > 0) Alert.alert('Heads up', messages.join('\n\n'));
       await load();
     } catch (err: any) {
@@ -273,9 +307,22 @@ export default function DeploymentsScreen() {
 
   const live = deployments.filter(d => d.status === 'active' || d.status === 'scheduled' || d.status === 'paused');
   const history = deployments.filter(d => ['closed', 'expired', 'cancelled'].includes(d.status));
-  const canCreate = c.canCreateDeployment && (
-    billing?.is_super_admin || billing?.is_complimentary || billing?.subscription?.status === 'active' || billing?.credit_balance > 0
-  );
+  // Create form is reachable with a home-org operator role OR an operate grant
+  // on a team org. A plain home-org 'user' holding a grant still gets the form,
+  // targeting the team org only.
+  const operableNonHome = (operableOrgs || []).filter((o: any) => !o.is_home);
+  const showCreateCard = c.canCreateDeployment || operableNonHome.length > 0;
+  const showOrgSelector = operableOrgs.length > 1
+    || (operableOrgs.length === 1 && !operableOrgs[0].is_home);
+  const targetIsHome = !createOrgId || createOrgId === ownOrgId;
+  // Home target: existing home role + billing gate. Team target: authorized by
+  // the grant; billing evaluated server-side (e.g. complimentary), so don't
+  // block client-side.
+  const canCreate = targetIsHome
+    ? (c.canCreateDeployment && (
+        billing?.is_super_admin || billing?.is_complimentary || billing?.subscription?.status === 'active' || billing?.credit_balance > 0
+      ))
+    : true;
 
   const s = styles(colors);
 
@@ -299,8 +346,9 @@ export default function DeploymentsScreen() {
     >
       <Text style={s.title}>DEPLOYMENTS</Text>
 
-      {/* New deployment — operators+ only */}
-      {c.canCreateDeployment && (
+      {/* New deployment — home-org operators, OR anyone holding an operate
+          grant on a team org. */}
+      {showCreateCard && (
       <View style={s.card}>
         <Text style={s.cardHeader}>START NEW DEPLOYMENT</Text>
         <Text style={s.cardSub}>$50 credit or included with subscription</Text>
@@ -311,6 +359,31 @@ export default function DeploymentsScreen() {
           placeholder="e.g. Rogers Arena — April 5 2026"
           placeholderTextColor={colors.textMuted}
         />
+
+        {/* Org-context selector — when there's a real choice, or the only
+            target is a team org (so a plain-user grantee sees the target). */}
+        {showOrgSelector && (
+          <View style={s.createPreassignSection}>
+            <Text style={s.preassignLabel}>CREATE IN</Text>
+            <View style={s.chipRow}>
+              {operableOrgs.map((o: any) => {
+                const selected = (createOrgId || ownOrgId) === o.id;
+                return (
+                  <TouchableOpacity
+                    key={o.id}
+                    onPress={() => { setCreateOrgId(o.id); setCreatePreassignNodeIds([]); }}
+                    style={[s.chipPickerItem, selected && s.chipPickerItemSelected]}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[s.chipPickerItemText, selected && s.chipPickerItemTextSelected]}>
+                      {o.is_home ? `${o.name} (My org)` : o.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
 
         <View style={s.modeSelector}>
           <TouchableOpacity
@@ -367,11 +440,11 @@ export default function DeploymentsScreen() {
           </TouchableOpacity>
         )}
 
-        {mode === 'event' && orgNodes.length > 0 && (
+        {mode === 'event' && effectiveCreateNodes.length > 0 && (
           <View style={s.createPreassignSection}>
             <Text style={s.preassignLabel}>ASSIGN NODES (REQUIRED — AT LEAST ONE)</Text>
             <View style={s.chipRow}>
-              {orgNodes.map(n => {
+              {effectiveCreateNodes.map(n => {
                 const selected = createPreassignNodeIds.includes(n.id);
                 return (
                   <TouchableOpacity
@@ -439,6 +512,11 @@ export default function DeploymentsScreen() {
                 <View key={dep.id} style={[s.card, s.scheduledCard]}>
                   <View style={s.depHeader}>
                     <Text style={s.depName}>{dep.name}</Text>
+                  {dep.org_id !== ownOrgId && (
+                    <Text style={s.teamBadge}>
+                      ⇄ {dep.org_name || 'TEAM'}{canOperate(dep) ? '' : ' (view)'}
+                    </Text>
+                  )}
                     <View style={s.scheduledBadge}><Text style={s.scheduledBadgeText}>◔ SCHEDULED</Text></View>
                   </View>
                   <Text style={s.depMeta}>
@@ -539,6 +617,11 @@ export default function DeploymentsScreen() {
               <View key={dep.id} style={[s.card, isPaused ? s.pausedCard : s.activeCard]}>
                 <View style={s.depHeader}>
                   <Text style={s.depName}>{dep.name}</Text>
+                  {dep.org_id !== ownOrgId && (
+                    <Text style={s.teamBadge}>
+                      ⇄ {dep.org_name || 'TEAM'}{canOperate(dep) ? '' : ' (view)'}
+                    </Text>
+                  )}
                   {isPaused
                     ? <View style={s.pausedBadge}><Text style={s.pausedBadgeText}>◌ PAUSED</Text></View>
                     : <View style={s.activeBadge}><Text style={s.activeBadgeText}>● ACTIVE</Text></View>}
@@ -597,6 +680,11 @@ export default function DeploymentsScreen() {
               <View key={dep.id} style={s.card}>
                 <View style={s.depHeader}>
                   <Text style={s.depName}>{dep.name}</Text>
+                  {dep.org_id !== ownOrgId && (
+                    <Text style={s.teamBadge}>
+                      ⇄ {dep.org_name || 'TEAM'}{canOperate(dep) ? '' : ' (view)'}
+                    </Text>
+                  )}
                   <Text style={[s.statusText, { color: dep.status === 'expired' ? colors.amber : colors.textMuted }]}>
                     {dep.status.toUpperCase()}
                   </Text>
@@ -739,6 +827,12 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
   depMeta: { color: c.textMuted, fontSize: 10, marginBottom: 4 },
+  teamBadge: {
+    color: c.cyan, fontSize: 9, letterSpacing: 1, marginLeft: 8,
+    borderWidth: 1, borderColor: c.cyan, borderRadius: 4,
+    paddingHorizontal: 6, paddingVertical: 2, overflow: 'hidden',
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
   countdown: {
     color: c.cyan, fontSize: 11, marginBottom: 12, letterSpacing: 1,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',

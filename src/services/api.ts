@@ -138,20 +138,31 @@ export const api = {
   forgotPassword: (email: string) =>
     request('POST', '/auth/forgot-password', { email }),
 
+  // Orgs the current user can create/operate deployments in (home + operate
+  // grants). Render the "Create in" selector only when length > 1.
+  getOperableOrgs: () => request('GET', '/org-grants/operable-orgs'),
+  // Org-level assignable node pool for the create form when targeting a team org.
+  getOrgAssignableNodes: (orgId: string) =>
+    request('GET', `/deployments/assignable-nodes?org_id=${encodeURIComponent(orgId)}`),
+
   // Deployments
   getDeployments: () => request('GET', '/deployments'),
   // Event deployments require nodeIds (>=1). Continuous deployments ignore
   // them entirely on the backend, so callers can omit for continuous.
+  // targetOrgId (optional) creates in a team org via an org-operate grant;
+  // omitted/home-org keeps existing behavior.
   createDeployment: (
     name: string,
     scheduledFor?: string,
     mode?: 'event' | 'continuous',
     nodeIds?: string[],
+    targetOrgId?: string,
   ) => {
     const body: any = { name };
     if (mode) body.mode = mode;
     if (scheduledFor) body.scheduled_for = scheduledFor;
     if (Array.isArray(nodeIds) && nodeIds.length > 0) body.node_ids = nodeIds;
+    if (targetOrgId) body.org_id = targetOrgId;
     return request('POST', '/deployments', body);
   },
   closeDeployment: (id: string) => request('POST', `/deployments/${id}/close`),
