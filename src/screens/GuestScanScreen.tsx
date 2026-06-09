@@ -11,6 +11,7 @@ import { useTheme, getDroneColor } from '../theme';
 import KeepScreenOnToggle from '../components/KeepScreenOnToggle';
 import * as Location from 'expo-location';
 import { OP_STATUS_AIRBORNE } from '../services/odidParser';
+import { fmtAltitude, fmtSpeed } from '../utils/units';
 
 MapboxGL.setAccessToken(process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN ?? '');
 
@@ -243,8 +244,8 @@ export default function GuestScanScreen({ navigation }: any) {
             <>
               <View style={s.detailGrid}>
                 <DetailRow label="POSITION" value={selectedDrone.lat ? `${selectedDrone.lat.toFixed(6)}, ${selectedDrone.lon!.toFixed(6)}` : '—'} />
-                <DetailRow label="ALTITUDE" value={selectedDrone.altGeo != null ? `${Math.round(selectedDrone.altGeo * 3.28084)}ft MSL` : '—'} />
-                <DetailRow label="SPEED" value={selectedDrone.speedHoriz != null ? `${(selectedDrone.speedHoriz * 2.237).toFixed(1)}mph` : '—'} />
+                <DetailRow label="ALTITUDE" value={selectedDrone.altGeo != null ? `${fmtAltitude(selectedDrone.altGeo)} MSL` : '—'} />
+                <DetailRow label="SPEED" value={fmtSpeed(selectedDrone.speedHoriz)} />
                 <DetailRow label="HEADING" value={selectedDrone.heading != null ? `${Math.round(selectedDrone.heading)}°` : '—'} />
                 <DetailRow label="OPERATOR" value={selectedDrone.opLat ? `${selectedDrone.opLat.toFixed(6)}, ${selectedDrone.opLon!.toFixed(6)}` : '—'} />
                 <DetailRow label="SIGNAL" value={`${selectedDrone.rssi}dBm`} />

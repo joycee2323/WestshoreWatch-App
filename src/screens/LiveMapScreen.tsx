@@ -15,6 +15,7 @@ import { startBleScanning, stopBleScanning } from '../services/bleScanner';
 import { fetchNodes as fetchNodeRegistry, getNodeByMac } from '../services/nodeRegistry';
 import * as Location from 'expo-location';
 import { useCaps } from '../lib/useCaps';
+import { fmtAltitude, fmtSpeed } from '../utils/units';
 
 // Debounce window for nickname edits — avoids hammering the backend on every
 // keystroke while the operator is typing. Saves on settle.
@@ -1380,8 +1381,8 @@ export default function LiveMapScreen() {
                   {[
                     ['MODEL', modelDisplay],
                     ['POSITION', dLat != null ? `${Number(dLat).toFixed(6)}, ${Number(dLon).toFixed(6)}` : '—'],
-                    ['ALTITUDE', dAlt != null ? `${Math.round(dAlt * 3.28084)}ft MSL` : '—'],
-                    ['SPEED', dSpeed != null ? `${(dSpeed * 2.237).toFixed(1)}mph` : '—'],
+                    ['ALTITUDE', dAlt != null ? `${fmtAltitude(dAlt)} MSL` : '—'],
+                    ['SPEED', fmtSpeed(dSpeed)],
                     ['OPERATOR', dOpLat != null ? `${Number(dOpLat).toFixed(6)}, ${Number(dOpLon).toFixed(6)}` : '—'],
                     ['NODE', nodeName],
                   ].map(([label, value]) => (
