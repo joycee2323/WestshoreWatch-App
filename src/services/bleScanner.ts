@@ -29,6 +29,15 @@ if (Platform.OS === 'android' && !BLEScanner) {
   );
 }
 
+if (Platform.OS === 'ios' && !BLEScanner) {
+  console.error(
+    '[bleScanner] Native BLEScanner module not registered on iOS. ' +
+    'BLE scanning, detection upload, and node heartbeat will not function. ' +
+    'Verify the Swift BLEScanner module is compiled into the iOS bundle ' +
+    '(see ios/BLEScannerModule and the expo config plugin).'
+  );
+}
+
 const UPLOAD_BASE_URL = 'https://api.westshoredrone.com';
 
 // TODO(follow-up): detection uploads from the Kotlin foreground service
@@ -48,7 +57,7 @@ const UPLOAD_BASE_URL = 'https://api.westshoredrone.com';
 // service can POST detections without waiting for the JS thread (which Doze
 // suspends when the screen is off).
 export async function configureNativeUpload(token: string | null): Promise<void> {
-  if (Platform.OS !== 'android' || !BLEScanner?.configure) return;
+  if (!BLEScanner?.configure) return;
   try {
     await BLEScanner.configure({ baseUrl: UPLOAD_BASE_URL, authToken: token });
   } catch (e) {
@@ -67,7 +76,7 @@ interface NativeScanResult {
 }
 
 async function startForegroundService(): Promise<void> {
-  if (Platform.OS !== 'android' || !BLEScanner) return;
+  if (!BLEScanner) return;
   // Rethrow so callers can surface BLE_SERVICE_NOT_RUNNING (the native side
   // verifies the service actually came up before resolving). A failure here
   // means scanning won't work — the user needs to know.
@@ -76,7 +85,7 @@ async function startForegroundService(): Promise<void> {
 }
 
 async function stopForegroundService(): Promise<void> {
-  if (Platform.OS !== 'android' || !BLEScanner) return;
+  if (!BLEScanner) return;
   try {
     await BLEScanner.stopService();
   } catch (e) {
@@ -113,7 +122,7 @@ function attachUploaderReinitListener(): void {
 }
 
 export async function getWatchdogStats(): Promise<WatchdogStats | null> {
-  if (Platform.OS !== 'android' || !BLEScanner?.getWatchdogStats) return null;
+  if (!BLEScanner?.getWatchdogStats) return null;
   try {
     return await BLEScanner.getWatchdogStats();
   } catch (e) {
@@ -156,7 +165,7 @@ export async function startBleScanning(
   onNearbyNode?: (mac: string, rssi: number) => void,
 ): Promise<void> {
   if (scanning) return;
-  if (Platform.OS !== 'android' || !BLEScanner) {
+  if (!BLEScanner) {
     console.warn('[BLE] Native BLEScanner module unavailable');
     return;
   }

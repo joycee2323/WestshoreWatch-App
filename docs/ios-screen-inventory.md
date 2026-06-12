@@ -1,5 +1,12 @@
 # iOS Screen Inventory & Adaptation Plan
 
+> **⚠️ Superseded — iOS now has full operational parity with Android.** The
+> viewer-only architecture documented below is no longer applicable. iOS ships
+> full pairing, BLE detection relay, cloud upload, and heartbeat reporting,
+> exactly like Android. See [docs/ios-implementation.md](./ios-implementation.md)
+> for the current architecture. This file is retained as a record of the
+> original viewer-only audit.
+
 Phase 0, step 1 of the Westshore Watch iOS port. This document captures the
 audit of every screen in the existing React Native Android app and the
 decisions made about how each one ships on iOS.

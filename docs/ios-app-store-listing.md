@@ -46,12 +46,12 @@ resubmitting the app, so use it for time-sensitive messaging when needed
 ```
 Westshore Watch is a Remote ID drone detection platform. Hardware nodes detect drones broadcasting Remote ID and stream their flight paths to your dashboard and devices in real time.
 
-THIS APP IS A VIEWER
-
-Westshore Watch for iPhone and iPad lets you monitor detections, manage deployments, and receive alerts wherever you are. Nodes pair with an Android companion device or operate standalone — this app shows you everything they see.
+Westshore Watch for iPhone and iPad pairs detection nodes over Bluetooth, relays Remote ID broadcasts to the cloud, and lets you monitor detections, manage deployments, and receive alerts wherever you are.
 
 WHAT YOU CAN DO
 
+• Pair detection nodes via Bluetooth
+• Stream detections to your team in real time
 • View live drone detections on an interactive map
 • Track flight paths, operator locations, drone models, and altitudes
 • Get push notifications when drones enter your facility boundaries
@@ -68,14 +68,14 @@ HARDWARE
 Westshore Watch nodes connect to the Westshore Watch cloud and stream Remote ID detections to your account.
 
 • Sentinel — stationary node, plugs in and runs standalone (no phone needed)
-• X1 — portable node for mobile deployments (requires Android companion device)
-• M1 — compact portable node (requires Android companion device)
+• X1 — portable node for mobile deployments
+• M1 — compact portable node
 
 Visit westshoredrone.com to learn more or purchase hardware.
 
 REQUIREMENTS
 
-A Westshore Watch account is required to use this app. Sign up at watch.westshoredrone.com. Portable nodes (X1, M1) require an Android companion device to relay detections; Sentinel nodes operate independently and work with any combination of iOS and Android viewers on the account.
+A Westshore Watch account is required to use this app. Sign up at watch.westshoredrone.com. Portable nodes (X1, M1) pair with this app over Bluetooth to relay detections; Sentinel nodes operate independently. iOS and Android devices work interchangeably on the same account.
 
 ABOUT REMOTE ID
 
@@ -167,13 +167,16 @@ account.
 ## Review Notes (private, visible only to Apple reviewers)
 
 ```
-Westshore Watch is a viewer and notification client for the Westshore Watch
-Remote ID drone detection platform. The iOS app:
+Westshore Watch is a detection-relay and monitoring client for the Westshore
+Watch Remote ID drone detection platform. The iOS app:
 
-- Does NOT scan for Bluetooth or radio signals. All detection happens on
-  dedicated hardware nodes (Sentinel stationary, or X1/M1 portable nodes
-  paired with an Android companion device). The iOS app receives detection
-  data from our backend via authenticated WebSocket and HTTPS.
+- Westshore Watch scans for Bluetooth advertisements broadcast by Westshore
+  Watch detection nodes, which relay drone Remote ID information per the FAA
+  Part 89 rule. The app does not scan for arbitrary Bluetooth devices. All
+  drone detection originates on dedicated hardware nodes (Sentinel stationary,
+  or X1/M1 portable nodes); the app relays those broadcasts to our backend over
+  authenticated HTTPS and also receives detection data via authenticated
+  WebSocket.
 
 - Does NOT require any unusual entitlements. Push notifications use APNs
   via Expo's push service. Location permission is requested only to center

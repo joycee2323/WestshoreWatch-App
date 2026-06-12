@@ -93,16 +93,14 @@ export default function LoginScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
 
-        {/* Guest mode — Android only (BLE scanning requires the native scanner) */}
-        {Platform.OS === 'android' && (
-          <TouchableOpacity
-            style={s.guestBtn}
-            onPress={() => navigation.navigate('GuestScan')}
-          >
-            <Text style={s.guestText}>Continue without login →</Text>
-            <Text style={s.guestSub}>Scan for nearby drones via Bluetooth</Text>
-          </TouchableOpacity>
-        )}
+        {/* Guest mode — scan for nearby drones without an account */}
+        <TouchableOpacity
+          style={s.guestBtn}
+          onPress={() => navigation.navigate('GuestScan')}
+        >
+          <Text style={s.guestText}>Continue without login →</Text>
+          <Text style={s.guestSub}>Scan for nearby drones via Bluetooth</Text>
+        </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
   );
