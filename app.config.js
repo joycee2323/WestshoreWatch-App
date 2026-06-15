@@ -79,8 +79,32 @@ module.exports = ({ config }) => ({
           RNMapboxMapsDownloadToken: process.env.MAPBOX_DOWNLOAD_TOKEN,
         },
       ],
-      'expo-secure-store',
-      'expo-location',
+      [
+        'expo-secure-store',
+        {
+          // Real purpose string for NSFaceIDUsageDescription (we store the
+          // auth_token / login credentials in SecureStore). Without this the
+          // plugin injects a generic "$(PRODUCT_NAME)" placeholder — Apple
+          // Guideline 5.1.1 risk.
+          faceIDPermission:
+            'Westshore Watch uses Face ID to protect your saved login credentials.',
+        },
+      ],
+      [
+        'expo-location',
+        {
+          // The app only calls requestWhenInUseAuthorization, so suppress the
+          // Always-location keys (passing false makes @expo/config-plugins
+          // applyPermissions DELETE the key) to avoid the generic
+          // "$(PRODUCT_NAME)" placeholders the plugin injects by default. The
+          // real WhenInUse string is also declared in ios.infoPlist; set it
+          // here too so it doesn't depend on prebuild mod ordering.
+          locationWhenInUsePermission:
+            'Westshore Watch uses your location to center the map on your area and show nearby detections.',
+          locationAlwaysAndWhenInUsePermission: false,
+          locationAlwaysPermission: false,
+        },
+      ],
       // Notification icon defaults to the app icon. Add `icon` and
       // `color` here once a dedicated 96×96 monochrome notification
       // PNG is committed under ./assets/notification-icon.png.

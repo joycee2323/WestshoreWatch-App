@@ -11,10 +11,11 @@ import { useAuthStore } from '../store/authStore';
 import { createWebSocket, api, ReconnectingWebSocket, SubscribeMessage } from '../services/api';
 import { useTheme, getDroneColor } from '../theme';
 import { OP_STATUS_AIRBORNE } from '../services/odidParser';
-import { startBleScanning, stopBleScanning } from '../services/bleScanner';
+import { startBleScanning, stopBleScanning, getBridgeInRange } from '../services/bleScanner';
 import { fetchNodes as fetchNodeRegistry, getNodeByMac } from '../services/nodeRegistry';
 import * as Location from 'expo-location';
 import { useCaps } from '../lib/useCaps';
+import { useRelayTarget } from '../hooks/useRelayTarget';
 import { fmtAltitude, fmtSpeed } from '../utils/units';
 
 // Debounce window for nickname edits — avoids hammering the backend on every
@@ -148,6 +149,11 @@ export default function LiveMapScreen() {
   const activeDeploymentsRef = useRef<any[]>([]);
   useEffect(() => { activeDeploymentsRef.current = activeDeployments; }, [activeDeployments]);
 
+  // Drive the iOS node-less relay target (which deployment this phone uploads
+  // BLE detections to): auto-pick the sole operable active deployment, prompt on
+  // ambiguity, clear when none. Distinct from the view scope above.
+  useRelayTarget(activeDeployments, orgId);
+
   // Which deployment the map is currently SCOPED to (display + node fetch +
   // WS subscription + drone render all derive from this). 'ALL' = every
   // active deployment the viewer can see; a deployment id = just that one;
@@ -181,6 +187,19 @@ export default function LiveMapScreen() {
       subPaused.remove();
       subResumed.remove();
     };
+  }, []);
+
+  // Bridge-proximity badge: a DroneScout/BlueMark bridge is broadcasting nearby
+  // (protocol-signature proximity, NOT node identity — see bleScanner). bleScanner
+  // emits on in/out-of-range transitions; we mirror it into local state for the
+  // "NODE IN RANGE" badge. Distinct from node-online / the node icon.
+  const [bridgeInRange, setBridgeInRange] = useState(getBridgeInRange());
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      'BridgeInRangeChanged',
+      (p: { inRange?: boolean }) => setBridgeInRange(!!p?.inRange),
+    );
+    return () => sub.remove();
   }, []);
   const [nodes, setNodes] = useState<any[]>([]);
   const nodesRef = useRef<any[]>([]);
@@ -1148,7 +1167,7 @@ export default function LiveMapScreen() {
           {isPassive && (
             <Text style={s.passiveBadge}>◌ PASSIVE</Text>
           )}
-          {nearbyNodeCount > 0 && (
+          {(nearbyNodeCount > 0 || bridgeInRange) && (
             <Text style={s.nodeNearby}>📡 NODE IN RANGE</Text>
           )}
         </View>

@@ -2,6 +2,7 @@ import Foundation
 import CoreBluetooth
 import CoreLocation
 import React
+import os
 
 // iOS counterpart to:
 //   android/.../BLEScannerModule.kt   (the JS-facing native module)
@@ -73,6 +74,17 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
     // sourceMac(upper) -> (uasId, lastBasicId uptime) — legacy attribution TTL.
     private var attributionBySource: [String: (uasId: String, at: TimeInterval)] = [:]
     private let stateLock = NSLock()
+
+    // [diag] one-shot keys so the identity-recovery diagnostics fire once per
+    // state transition rather than once per advert — CoreBluetooth floods
+    // didDiscover under allowDuplicates. Cleared only on process restart.
+    private var loggedDiag = Set<String>()
+
+    // [diag] os_log channel — surfaces through the modern unified-log stream
+    // (pymobiledevice3 / Console / Xcode) on iOS 26, unlike NSLog. Used for the
+    // manufacturer-data reception probe (does the 0x08FE handle-3 EXTENDED advert
+    // reach didDiscover at all?).
+    private static let diagLog = OSLog(subsystem: "com.westshoredrone.watch", category: "ble")
 
     // MARK: - Watchdog
     private var lastPacketUptime: TimeInterval = 0
@@ -228,7 +240,12 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
         lastPacketUptime = ProcessInfo.processInfo.systemUptime
         startSelfHeal()
         if let p = startPromise { p.resolve(nil); startPromise = nil }
-        NSLog("[WSWBLEScanner] scan started (services=nil, allowDuplicates=true)")
+        os_log("[WSWBLEScanner] scan started (services=nil, allowDuplicates=true)",
+               log: WSWBLEScanner.diagLog, type: .info)
+        // [diag] os_log canary — if this surfaces in the capture but the per-advert
+        // mfg lines below never show 0x08FE, reception (not logging) is the gap.
+        os_log("[WSWBLEScanner] scan started (os_log canary)",
+               log: WSWBLEScanner.diagLog, type: .info)
     }
 
     func centralManager(_ central: CBCentralManager,
@@ -241,14 +258,30 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
         let pid = peripheral.identifier.uuidString
 
         // Recover the node MAC from the 0x08FE identity advert, if present.
+        // deviceId stays colon-free (uppercase, no separators) — it's the
+        // backend node id used verbatim in the /api/nodes/<deviceId>/... URLs.
         var nodeDeviceId: String? = nil
-        if let mfg = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data, mfg.count >= 8 {
+        if let mfg = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data, mfg.count >= 2 {
             let companyId = UInt16(mfg[0]) | (UInt16(mfg[1]) << 8) // little-endian
+            // [diag] PER-ADVERT manufacturer-data probe (os_log, not deduped): one
+            // line per advert with company id + length, so we can tell definitively
+            // whether the X1's 0x08FE handle-3 EXTENDED advert ever reaches
+            // didDiscover. When it's ours, also dump the full hex to verify the
+            // on-air [companyLE(2)][MAC(6)][api_key] layout. Reception probe only —
+            // NOT the identity-parse fix.
+            os_log("[WSWBLEScanner] mfg company=0x%{public}04X len=%{public}d",
+                   log: WSWBLEScanner.diagLog, type: .info, Int(companyId), mfg.count)
             if companyId == WSWBLEScanner.westshoreCompanyId {
+                let hex = mfg.map { String(format: "%02X", $0) }.joined(separator: " ")
+                os_log("[WSWBLEScanner] mfg 0x08FE raw=%{public}@ len=%{public}d",
+                       log: WSWBLEScanner.diagLog, type: .info, hex, mfg.count)
+            }
+            if companyId == WSWBLEScanner.westshoreCompanyId, mfg.count >= 8 {
                 let macBytes = mfg.subdata(in: 2..<8)
                 let mac = macBytes.map { String(format: "%02X", $0) }.joined()
                 stateLock.lock(); peripheralToDeviceId[pid] = mac; stateLock.unlock()
                 nodeDeviceId = mac
+                logOnce("id:\(pid):\(mac)", "identity recovered pid=\(pid) -> mac=\(mac)")
             }
         }
         if nodeDeviceId == nil {
@@ -256,26 +289,33 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
         }
 
         // ── Emit BLEScanResult to JS (payload mirrors BLEScannerService.emitScanResult) ──
+        // The JS contract (and Android) keys on a COLON-separated MAC: the
+        // shared bleScanner.ts isWestshoreWatchNode() does startsWith('38:44:BE'),
+        // so we must hand JS the colon form (Android sends device.address).
+        // Fall back to the peripheral UUID until the identity advert is seen.
+        let emitMac = nodeDeviceId.map(colonMac) ?? peripheral.identifier.uuidString
         emitScanResult(peripheral: peripheral, advertisementData: advertisementData,
-                       rssi: RSSI, recoveredMac: nodeDeviceId)
+                       rssi: RSSI, emitMac: emitMac)
 
         // ── Native heartbeat + upload paths (mirror maybeEnqueueForUpload) ──
         if let deviceId = nodeDeviceId, isWestshoreWatchNode(deviceId) {
+            logOnce("seen:\(deviceId)", "markNodeSeen deviceId=\(deviceId)")
             heartbeat.markNodeSeen(deviceId)
         }
-        maybeEnqueueForUpload(deviceId: nodeDeviceId, advertisementData: advertisementData, nowUptime: nowUptime)
+        maybeEnqueueForUpload(deviceId: nodeDeviceId, pid: pid,
+                              advertisementData: advertisementData, nowUptime: nowUptime)
     }
 
     private func emitScanResult(peripheral: CBPeripheral,
                                 advertisementData: [String: Any],
                                 rssi: NSNumber,
-                                recoveredMac: String?) {
+                                emitMac: String) {
         var map: [String: Any] = [:]
-        // Android sends a colon MAC; JS uppercases + strips separators itself.
-        // We supply the recovered MAC when known, else the peripheral UUID so
-        // JS always has a stable key (node-claim/proximity features need the MAC
-        // and will only work once the identity advert has been seen).
-        map["mac"] = recoveredMac ?? peripheral.identifier.uuidString
+        // emitMac is already in the JS-expected shape: a colon-separated MAC
+        // ("38:44:BE:A5:79:46") once the identity advert has been seen, else the
+        // peripheral UUID. JS's isWestshoreWatchNode() does a colon-ful prefix
+        // match, so node-claim/proximity only light up once the MAC is known.
+        map["mac"] = emitMac
         map["rssi"] = rssi.intValue
         if let name = (advertisementData[CBAdvertisementDataLocalNameKey] as? String) ?? peripheral.name {
             map["name"] = name
@@ -316,6 +356,7 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
     }
 
     private func maybeEnqueueForUpload(deviceId: String?,
+                                       pid: String,
                                        advertisementData: [String: Any],
                                        nowUptime: TimeInterval) {
         guard let sd = advertisementData[CBAdvertisementDataServiceDataKey] as? [CBUUID: Data] else { return }
@@ -328,6 +369,16 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
         let parsed = WSWOdidParser.parseServiceData([UInt8](odidData))
         guard let parsed = parsed else { return }
         if parsed.uasId == "DroneScout Bridge" { return }
+
+        // [diag] Pack frame attribution. attrib=MISS means the ODID advert's
+        // CBPeripheral has no recovered MAC — the native heartbeat/upload then
+        // can't fire (this is the offline-node failure). Compare the pid here
+        // with the "identity recovered" pid: same pid expected if the firmware
+        // advertises both sets from one BLE address.
+        if parsed.msgType == WSWBLEScanner.odidMsgPack {
+            logOnce("pack:\(pid):\(deviceId ?? "MISS")",
+                    "pack frame pid=\(pid) attrib=\(deviceId ?? "MISS") uasId=\(parsed.uasId ?? "nil")")
+        }
 
         // Without a recovered node MAC we cannot form the deviceId for the POST
         // URL. Emit-to-JS already happened; just skip the native upload.
@@ -364,6 +415,31 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
         return deviceIdUpper.hasPrefix("98A3167D") || deviceIdUpper.hasPrefix("3844BE")
     }
 
+    // Colon-format a colon-free uppercase MAC ("3844BEA57946") into the
+    // Android device.address shape ("38:44:BE:A5:79:46") the shared JS expects.
+    // Returns the input unchanged if it isn't a 12-char hex MAC.
+    private func colonMac(_ macUpperNoSep: String) -> String {
+        let chars = Array(macUpperNoSep)
+        guard chars.count == 12 else { return macUpperNoSep }
+        var out = ""
+        for i in stride(from: 0, to: 12, by: 2) {
+            if !out.isEmpty { out += ":" }
+            out.append(chars[i]); out.append(chars[i + 1])
+        }
+        return out
+    }
+
+    // [diag] Emit an os_log the first time a given key is seen, so runtime
+    // diagnostics mark state transitions instead of spamming per advert.
+    private func logOnce(_ key: String, _ message: String) {
+        stateLock.lock()
+        let isNew = loggedDiag.insert(key).inserted
+        stateLock.unlock()
+        if isNew {
+            os_log("[WSWBLEScanner] %{public}@", log: WSWBLEScanner.diagLog, type: .info, message)
+        }
+    }
+
     private func fullLowercaseUUID(_ uuid: CBUUID) -> String {
         // CBUUID for a 16-bit UUID stringifies as "FFFA"; expand to the full
         // 128-bit Bluetooth base UUID form Android uses.
@@ -396,7 +472,8 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
 
         if isScanning && bleIdle >= WSWBLEScanner.bleSilenceThresholdSec
             && sinceReinit >= WSWBLEScanner.reinitBackoffSec {
-            NSLog("[WSWBLEScanner] no adverts in \(Int(bleIdle))s — restarting scan")
+            os_log("[WSWBLEScanner] no adverts in %{public}ds — restarting scan",
+                   log: WSWBLEScanner.diagLog, type: .info, Int(bleIdle))
             stateLock.lock(); bleReinitCount += 1; lastBleReinitUptime = now; stateLock.unlock()
             central?.stopScan()
             beginScan()
@@ -433,6 +510,7 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        NSLog("[WSWBLEScanner] location error: \(error.localizedDescription)")
+        os_log("[WSWBLEScanner] location error: %{public}@",
+               log: WSWBLEScanner.diagLog, type: .error, error.localizedDescription)
     }
 }
