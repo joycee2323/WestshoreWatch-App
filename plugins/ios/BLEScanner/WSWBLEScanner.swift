@@ -289,16 +289,20 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
         }
 
         // ── Emit BLEScanResult to JS (payload mirrors BLEScannerService.emitScanResult) ──
-        // The JS contract (and Android) keys on a COLON-separated MAC: the
-        // shared bleScanner.ts isWestshoreWatchNode() does startsWith('38:44:BE'),
-        // so we must hand JS the colon form (Android sends device.address).
+        // Hand JS the COLON-separated MAC shape Android sends (device.address), so
+        // both platforms derive the same device_id (getDeviceIdFromMac strips the
+        // colons) for discoveredNodes / node-claim. Node recognition itself now
+        // keys on the 0x08FE manufacturerData (isNodeIdentityAdvert), not the MAC.
         // Fall back to the peripheral UUID until the identity advert is seen.
         let emitMac = nodeDeviceId.map(colonMac) ?? peripheral.identifier.uuidString
         emitScanResult(peripheral: peripheral, advertisementData: advertisementData,
                        rssi: RSSI, emitMac: emitMac)
 
         // ── Native heartbeat + upload paths (mirror maybeEnqueueForUpload) ──
-        if let deviceId = nodeDeviceId, isWestshoreWatchNode(deviceId) {
+        // A non-nil nodeDeviceId means we recovered the MAC from this device's
+        // company-0x08FE identity advert (above), which is the recognition
+        // signal — no MAC-OUI check, so any OUI is supported.
+        if let deviceId = nodeDeviceId {
             logOnce("seen:\(deviceId)", "markNodeSeen deviceId=\(deviceId)")
             heartbeat.markNodeSeen(deviceId)
         }
@@ -313,8 +317,8 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
         var map: [String: Any] = [:]
         // emitMac is already in the JS-expected shape: a colon-separated MAC
         // ("38:44:BE:A5:79:46") once the identity advert has been seen, else the
-        // peripheral UUID. JS's isWestshoreWatchNode() does a colon-ful prefix
-        // match, so node-claim/proximity only light up once the MAC is known.
+        // peripheral UUID. node-claim/proximity only light up once the MAC is
+        // known (recovered from the 0x08FE identity advert).
         map["mac"] = emitMac
         map["rssi"] = rssi.intValue
         if let name = (advertisementData[CBAdvertisementDataLocalNameKey] as? String) ?? peripheral.name {
@@ -381,9 +385,11 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
         }
 
         // Without a recovered node MAC we cannot form the deviceId for the POST
-        // URL. Emit-to-JS already happened; just skip the native upload.
+        // URL. A recovered deviceId is only ever set from a company-0x08FE
+        // identity advert, so its presence is itself the node-recognition
+        // signal — relayed ODID from drones / third-party bridges never yields
+        // one and is skipped here. Emit-to-JS already happened.
         guard let deviceId = deviceId else { return }
-        if !isWestshoreWatchNode(deviceId) { return }
 
         // Attribution: Pack frames are self-identifying (Option C). Legacy
         // per-message frames inherit the most recent BasicId on this source
@@ -407,12 +413,6 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
             hdg: parsed.heading, opLat: parsed.opLat, opLon: parsed.opLon,
             odidTimestamp: parsed.odidTimestamp
         ))
-    }
-
-    // Mirrors BLEScannerService.isWestshoreWatchNode — OUI check on the recovered
-    // colon-free uppercase MAC ("98A3167D…" / "3844BE…").
-    private func isWestshoreWatchNode(_ deviceIdUpper: String) -> Bool {
-        return deviceIdUpper.hasPrefix("98A3167D") || deviceIdUpper.hasPrefix("3844BE")
     }
 
     // Colon-format a colon-free uppercase MAC ("3844BEA57946") into the

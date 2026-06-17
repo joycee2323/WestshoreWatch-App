@@ -149,6 +149,13 @@ const discoveredNodes = new Map<string, DiscoveredNode>();
 const ATTRIBUTION_TTL_MS = 200;
 const ODID_MSG_PACK = 0xF;
 const ODID_MSG_SYSTEM = 4;
+// Westshore Watch node identity advertiser company ID (handle 3 in
+// firmware/ble_relay.c, manufacturer-specific data [MAC(6)][api_key prefix]).
+// A node is recognized by the presence of this company ID in its advert, not
+// by MAC OUI — see isNodeIdentityAdvert. The relay/pack adverts carry only
+// ODID service data (0xFFFA) and the detection advert uses 0x08FF, so neither
+// can match this check.
+const WESTSHORE_COMPANY_ID = 0x08fe;
 const mergeBySource = new Map<string, { uasId: string; lastBasicIdAt: number }>();
 
 // Operator location (op_lat/op_lon) rides in the relayed System frame
@@ -224,9 +231,23 @@ export function getDiscoveredNodes(): Map<string, DiscoveredNode> {
 
 let onNodeNearby: ((mac: string, rssi: number) => void) | null = null;
 
-function isWestshoreWatchNode(mac: string): boolean {
-  const upper = mac.toUpperCase();
-  return upper.startsWith('98:A3:16:7D') || upper.startsWith('38:44:BE');
+// A Westshore node is recognized by its company-0x08FE identity advert (the
+// structural discovery signature the native scan filter already uses), not by
+// MAC OUI — so any OUI (e.g. 10:BD:A3) is recognized. manufacturerData is
+// base64 of [companyId LE][payload]; we only need the first two bytes. Returns
+// false for relay/pack frames (no manufacturer data) and detection frames
+// (company 0x08FF), so it cannot match a relay advert.
+function isNodeIdentityAdvert(manufacturerData: string | null): boolean {
+  if (!manufacturerData) return false;
+  try {
+    // atob for Hermes compatibility — mirrors odidParser's service-data decode.
+    const binary = atob(manufacturerData);
+    if (binary.length < 2) return false;
+    const companyId = binary.charCodeAt(0) | (binary.charCodeAt(1) << 8);
+    return companyId === WESTSHORE_COMPANY_ID;
+  } catch {
+    return false;
+  }
 }
 
 // The deployment this phone is relaying BLE detections to (iOS node-less path),
@@ -312,7 +333,7 @@ export async function startBleScanning(
     const mac = device.mac;
     const serviceDataMap = device.serviceData;
 
-    if (isWestshoreWatchNode(mac)) {
+    if (isNodeIdentityAdvert(device.manufacturerData)) {
       const macUpper = mac.toUpperCase();
       discoveredNodes.set(macUpper, {
         mac: macUpper,

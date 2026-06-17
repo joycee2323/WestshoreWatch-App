@@ -65,4 +65,10 @@ src/
 
 - BLE scanning requires a physical device — does not work in simulators
 - Location permission required for BLE scanning on Android 12+
-- The OUI filter (`98:A3:16:7D`) prevents nodes from detecting each other's relay broadcasts
+- Nodes are recognized by their company-`0x08FE` identity advert (handle 3 in
+  firmware `ble_relay.c`), not by MAC OUI — so any OUI is supported. Recognition
+  keys only on the identity advert: ODID relay/pack adverts (service data
+  `0xFFFA`) and the detection advert (company `0x08FF`) are never treated as a
+  node, so relayed drone broadcasts don't trip "NODE IN RANGE" or the add-node
+  list. The relay-advert upload path (which carries no `0x08FE`) recognizes a
+  source as a node only after a `0x08FE` advert has been seen from that MAC.
