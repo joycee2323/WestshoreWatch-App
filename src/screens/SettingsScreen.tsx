@@ -152,7 +152,9 @@ export default function SettingsScreen() {
 
   const s = styles(colors);
 
-  if (showBilling) {
+  // iOS: never render the external billing WebView, even via stale/programmatic
+  // state — App Store Guideline 3.1.1 (no external purchase). Android unchanged.
+  if (showBilling && Platform.OS !== 'ios') {
     return <BillingScreen onDone={() => {
       setShowBilling(false);
       api.getBillingStatus().then(setBilling).catch(console.warn);
@@ -218,8 +220,10 @@ export default function SettingsScreen() {
       </View>
       )}
 
-      {/* Upgrade — org_admin only */}
-      {canBilling && (
+      {/* Upgrade — org_admin only. Hidden on iOS (App Store Guideline 3.1.1:
+          no linking to external purchase — this opens the web billing page).
+          Android unchanged. */}
+      {canBilling && Platform.OS !== 'ios' && (
         <TouchableOpacity style={s.upgradeBtn} onPress={() => setShowBilling(true)}>
           <Text style={s.upgradeBtnText}>⚡ UPGRADE / BUY CREDITS</Text>
         </TouchableOpacity>

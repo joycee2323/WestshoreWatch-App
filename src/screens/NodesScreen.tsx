@@ -94,7 +94,10 @@ export default function NodesScreen() {
       if (at_cap) {
         Alert.alert(
           'Node Limit Reached',
-          `Your ${plan} plan allows ${limit} node${limit === 1 ? '' : 's'} (you have ${current}). Upgrade to add more.`,
+          // iOS: no purchase steering (App Store Guideline 3.1.1). Android unchanged.
+          Platform.OS === 'ios'
+            ? "You've reached the node limit for this account. Contact your administrator."
+            : `Your ${plan} plan allows ${limit} node${limit === 1 ? '' : 's'} (you have ${current}). Upgrade to add more.`,
         );
         return;
       }

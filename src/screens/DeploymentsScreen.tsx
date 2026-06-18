@@ -284,7 +284,10 @@ export default function DeploymentsScreen() {
     catch (err: any) {
       const msg: string = err?.message || '';
       if (msg === 'billing_required' || msg.includes('billing_required')) {
-        Alert.alert('Cannot Resume', 'Billing required — restore your subscription or credits before resuming.');
+        // iOS: no purchase steering (App Store Guideline 3.1.1). Android unchanged.
+        Alert.alert('Cannot Resume', Platform.OS === 'ios'
+          ? 'This deployment requires an active plan. Contact your administrator to enable it.'
+          : 'Billing required — restore your subscription or credits before resuming.');
       } else {
         Alert.alert('Error', msg || 'Failed to resume deployment');
       }
@@ -351,7 +354,7 @@ export default function DeploymentsScreen() {
       {showCreateCard && (
       <View style={s.card}>
         <Text style={s.cardHeader}>START NEW DEPLOYMENT</Text>
-        <Text style={s.cardSub}>$50 credit or included with subscription</Text>
+        <Text style={s.cardSub}>{Platform.OS === 'ios' ? 'Requires an active plan — contact your administrator' : '$50 credit or included with subscription'}</Text>
         <TextInput
           style={s.input}
           value={newName}
@@ -489,7 +492,7 @@ export default function DeploymentsScreen() {
           }
         </TouchableOpacity>
         {!canCreate && (
-          <Text style={[s.hint, { color: colors.amber }]}>No active subscription or credits</Text>
+          <Text style={[s.hint, { color: colors.amber }]}>{Platform.OS === 'ios' ? 'This deployment requires an active plan. Contact your administrator to enable it.' : 'No active subscription or credits'}</Text>
         )}
       </View>
       )}

@@ -45,10 +45,13 @@ const SECTIONS: PrefSection[] = [
   },
   {
     heading: 'BILLING',
+    // iOS: neutral, status-only labels so toggles don't read as purchase prompts
+    // (App Store Guideline 3.1.1). Toggles stay functional (same `kind`). Android
+    // keeps the original wording.
     rows: [
-      { kind: 'billing_subscription_expiring', label: 'Subscription expiring soon' },
-      { kind: 'billing_payment_failed', label: 'Payment failed' },
-      { kind: 'billing_subscription_cancelled', label: 'Subscription cancelled' },
+      { kind: 'billing_subscription_expiring', label: Platform.OS === 'ios' ? 'Plan status alerts' : 'Subscription expiring soon' },
+      { kind: 'billing_payment_failed', label: Platform.OS === 'ios' ? 'Payment status alerts' : 'Payment failed' },
+      { kind: 'billing_subscription_cancelled', label: Platform.OS === 'ios' ? 'Plan ended alerts' : 'Subscription cancelled' },
     ],
   },
 ];

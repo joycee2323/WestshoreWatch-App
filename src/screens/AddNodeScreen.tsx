@@ -168,7 +168,10 @@ export default function AddNodeScreen() {
       );
     } catch (err: any) {
       if (err.status === 402) {
-        Alert.alert('Node Limit Reached', 'Your current plan does not allow another node. Upgrade to add more.');
+        // iOS: no purchase steering (App Store Guideline 3.1.1). Android unchanged.
+        Alert.alert('Node Limit Reached', Platform.OS === 'ios'
+          ? "You've reached the node limit for this account. Contact your administrator."
+          : 'Your current plan does not allow another node. Upgrade to add more.');
       } else if (err.status === 409) {
         Alert.alert('Already Claimed', 'This node has already been claimed by another organization. Contact support if this is a mistake.');
       } else if (err.status === 429) {

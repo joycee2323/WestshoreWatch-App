@@ -1223,7 +1223,9 @@ export default function LiveMapScreen() {
           <View style={{ flex: 1 }}>
             <Text style={s.bgLocTitle}>DEPLOYMENT PAUSED</Text>
             <Text style={s.bgLocSub}>
-              Detections are queued and will upload when the deployment resumes. Visit watch.westshoredrone.com/billing for details.
+              {Platform.OS === 'ios'
+                ? 'This deployment is paused. Contact your administrator to restore service.'
+                : 'Detections are queued and will upload when the deployment resumes. Visit watch.westshoredrone.com/billing for details.'}
             </Text>
           </View>
         </View>
