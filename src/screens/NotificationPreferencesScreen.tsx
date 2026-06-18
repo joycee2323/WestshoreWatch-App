@@ -44,7 +44,8 @@ const SECTIONS: PrefSection[] = [
     ],
   },
   {
-    heading: 'BILLING',
+    // iOS: neutral section heading (no "BILLING" wording) — App Store 3.1.1.
+    heading: Platform.OS === 'ios' ? 'ACCOUNT ALERTS' : 'BILLING',
     // iOS: neutral, status-only labels so toggles don't read as purchase prompts
     // (App Store Guideline 3.1.1). Toggles stay functional (same `kind`). Android
     // keeps the original wording.

@@ -135,6 +135,9 @@ export default function SettingsScreen() {
   };
 
   useEffect(() => {
+    // iOS: no billing/subscription UI (App Store Guideline 3.1.1), so skip the
+    // billing-info fetch entirely — no network call. Android unchanged.
+    if (Platform.OS === 'ios') { setLoading(false); return; }
     api.getBillingStatus().then(setBilling).catch(console.warn).finally(() => setLoading(false));
   }, []);
 
@@ -186,8 +189,10 @@ export default function SettingsScreen() {
         </View>
       </View>
 
-      {/* Billing — admins only (backend 403s viewers/operators on /billing/status) */}
-      {c.canViewBilling && (
+      {/* Billing/subscription status — admins only (backend 403s viewers/operators
+          on /billing/status). Hidden entirely on iOS (App Store Guideline 3.1.1:
+          no subscription/credits/pricing UI). Android unchanged. */}
+      {c.canViewBilling && Platform.OS !== 'ios' && (
       <View style={s.card}>
         <Text style={s.cardHeader}>SUBSCRIPTION</Text>
         {loading ? (
