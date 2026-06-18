@@ -20,6 +20,10 @@ app-log.txt
 *.pem
 *.keystore
 
+# App Store Connect API keys - NEVER commit
+*.p8
+AuthKey_*.p8
+
 # Build artifacts. Use a contents glob (not bare directory) so the
 # Play-verification file below can override via negation; bare
 # `dir/` excludes the directory itself and prevents re-inclusion of
