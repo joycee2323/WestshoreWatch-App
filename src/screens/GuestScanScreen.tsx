@@ -2,11 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   Platform, Alert, ActivityIndicator, PermissionsAndroid,
+  DeviceEventEmitter,
 } from 'react-native';
 import MapboxGL from '@rnmapbox/maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDroneStore, DroneEntry } from '../store/droneStore';
-import { startBleScanning, stopBleScanning } from '../services/bleScanner';
+import { startBleScanning, stopBleScanning, getBridgeInRange } from '../services/bleScanner';
 import { useTheme, getDroneColor } from '../theme';
 import KeepScreenOnToggle from '../components/KeepScreenOnToggle';
 import * as Location from 'expo-location';
@@ -68,6 +69,19 @@ export default function GuestScanScreen({ navigation }: any) {
   const featureTappedRef = useRef(false);
   const [locationGranted, setLocationGranted] = useState(false);
   const cameraRef = useRef<MapboxGL.Camera>(null);
+
+  // DroneScout bridge proximity ("NODE" badge) — protocol-signature proximity,
+  // NOT node identity (see bleScanner). bleScanner emits on in/out-of-range
+  // transitions; we mirror it into local state. This is the iOS-functional
+  // 0xFFFA path; the nearbyNodes (0x08FE) path below only lights on Android.
+  const [bridgeInRange, setBridgeInRange] = useState(getBridgeInRange());
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      'BridgeInRangeChanged',
+      (p: { inRange?: boolean }) => setBridgeInRange(!!p?.inRange),
+    );
+    return () => sub.remove();
+  }, []);
 
   const droneList = Object.values(bleDrones);
   const selectedId = selectedDrone
@@ -231,7 +245,7 @@ export default function GuestScanScreen({ navigation }: any) {
       <View style={[s.topBar, { paddingTop: insets.top + 12 }]}>
         <View style={s.topLeft}>
           <Text style={s.appName}>WESTSHORE WATCH</Text>
-          {Object.keys(nearbyNodes).length > 0 && (
+          {(Object.keys(nearbyNodes).length > 0 || bridgeInRange) && (
             <View style={s.nodeBadge}>
               <Text style={s.nodeText}>📡 NODE</Text>
             </View>
