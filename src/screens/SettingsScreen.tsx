@@ -10,6 +10,7 @@ import BillingScreen from './BillingScreen';
 import { Linking } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import ChangePasswordScreen from './ChangePasswordScreen';
+import DeleteAccountScreen from './DeleteAccountScreen';
 import { api } from '../services/api';
 import { useTheme } from '../theme';
 import { caps } from '../lib/caps';
@@ -32,6 +33,7 @@ export default function SettingsScreen() {
   const [billing, setBilling] = useState<any>(null);
   const [showBilling, setShowBilling] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [loading, setLoading] = useState(true);
   const [manualUrl, setManualUrl] = useState<string>(MANUAL_URL_FALLBACK);
   const unreadCount = useNotificationsStore(s => s.unreadCount);
@@ -166,6 +168,18 @@ export default function SettingsScreen() {
 
   if (showChangePassword) {
     return <ChangePasswordScreen onDone={() => setShowChangePassword(false)} />;
+  }
+
+  // Delete-account confirmation overlay (Apple Guideline 5.1.1(v)). On success
+  // onDeleted runs the same logout cleanup as Sign Out, which flips the
+  // navigator back to Login; on 409/500 the screen keeps the user here.
+  if (showDeleteAccount) {
+    return (
+      <DeleteAccountScreen
+        onCancel={() => setShowDeleteAccount(false)}
+        onDeleted={logout}
+      />
+    );
   }
 
   return (
@@ -368,6 +382,14 @@ export default function SettingsScreen() {
       <TouchableOpacity style={s.logoutBtn} onPress={handleLogout}>
         <Text style={s.logoutText}>SIGN OUT</Text>
       </TouchableOpacity>
+
+      {/* Delete account — Apple Guideline 5.1.1(v). In-app, permanent account
+          deletion, shown on all platforms. Visually distinct from the bordered
+          Sign Out button (plain underlined destructive text) and routed through
+          a confirmation screen. */}
+      <TouchableOpacity style={s.deleteAccountBtn} onPress={() => setShowDeleteAccount(true)}>
+        <Text style={s.deleteAccountText}>DELETE ACCOUNT</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -504,6 +526,14 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   },
   logoutText: {
     color: c.red, fontSize: 13, fontWeight: '700', letterSpacing: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  deleteAccountBtn: {
+    marginTop: 14, paddingVertical: 12, alignItems: 'center',
+  },
+  deleteAccountText: {
+    color: c.red, fontSize: 12, fontWeight: '700', letterSpacing: 2,
+    textDecorationLine: 'underline',
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
 });
