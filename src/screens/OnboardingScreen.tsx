@@ -61,14 +61,29 @@ export default function OnboardingScreen({ onRefresh, refreshing, onSkip }: Prop
           to your dashboard in real time.
         </Text>
 
-        <TouchableOpacity
-          style={s.primaryBtn}
-          onPress={() => navigation.navigate('AddNode')}
-          activeOpacity={0.8}
-        >
-          <Text style={s.primaryBtnText}>SCAN FOR NEARBY NODE</Text>
-          <Text style={s.primaryBtnPrice}>→</Text>
-        </TouchableOpacity>
+        {/* Node pairing is Android/web-only — iOS CoreBluetooth can't discover
+            or claim a node (see lib/useCaps + services/bleScanner). On iOS,
+            replace the "SCAN FOR NEARBY NODE" CTA (which would dead-end on the
+            "pairing unavailable" screen) with the same explanation. The
+            hardware purchase links below are intentional/IAP-exempt and stay on
+            both platforms. Android keeps the scan button exactly as-is. */}
+        {Platform.OS === 'ios' ? (
+          <View style={s.infoBox}>
+            <Text style={s.infoText}>
+              Node pairing is managed from the Westshore Watch web dashboard or the Android app.
+              This device views detections from nodes assigned to your deployments.
+            </Text>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={s.primaryBtn}
+            onPress={() => navigation.navigate('AddNode')}
+            activeOpacity={0.8}
+          >
+            <Text style={s.primaryBtnText}>SCAN FOR NEARBY NODE</Text>
+            <Text style={s.primaryBtnPrice}>→</Text>
+          </TouchableOpacity>
+        )}
 
         <Text style={[s.chooseLabel, { marginTop: 24 }]}>Don't have a node yet?</Text>
 
@@ -137,6 +152,14 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     color: c.textMuted, fontSize: 11, letterSpacing: 2, marginBottom: 12,
     textAlign: 'center',
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  infoBox: {
+    borderWidth: 1, borderColor: c.cyan, borderRadius: 8,
+    paddingVertical: 16, paddingHorizontal: 16,
+    backgroundColor: 'rgba(0,212,255,0.08)',
+  },
+  infoText: {
+    color: c.text, fontSize: 12, lineHeight: 19, textAlign: 'center',
   },
   primaryBtn: {
     backgroundColor: c.cyan, borderRadius: 8,

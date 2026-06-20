@@ -334,7 +334,9 @@ export default function NodesScreen() {
           <Text style={s.emptyHint}>
             {c.canPairNodeOnThisDevice
               ? 'Claim a nearby node to start detecting drones'
-              : 'No nodes have been registered for your organization yet.'}
+              : Platform.OS === 'ios'
+                ? 'Node pairing is managed from the Westshore Watch web dashboard or the Android app. This device displays detections from nodes assigned to your deployments.'
+                : 'No nodes have been registered for your organization yet.'}
           </Text>
           {c.canPairNodeOnThisDevice && (
             <TouchableOpacity

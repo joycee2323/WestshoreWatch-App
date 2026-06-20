@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { caps as baseCaps, type CapsUser, type Caps } from './caps';
 
 export interface CapsWithDevice extends Caps {
@@ -7,17 +8,20 @@ export interface CapsWithDevice extends Caps {
 /**
  * useCaps — role-derived capabilities for the current user.
  *
- * `canPairNodeOnThisDevice` is currently identical to the role-based
- * `canPairNode`: every supported platform (Android and iOS) ships a native
- * BLE scanner, so pairing is available wherever the role allows it. It is
- * kept as a distinct, forward-compatible name (rather than collapsing call
- * sites back onto `canPairNode`) so that any future device-level constraint
- * on pairing can be folded in here without touching every screen.
+ * `canPairNodeOnThisDevice` = the role-based `canPairNode` AND the platform
+ * can actually discover and claim a node over BLE — which is Android-only.
+ * iOS CoreBluetooth never delivers the 0x08FE node-identity advert (the
+ * "device_id wall", see services/bleScanner.ts) and never exposes the
+ * hardware MAC, so the claim-by-MAC pairing flow cannot work there: the
+ * scanner would run forever and surface nothing. Gating here keeps every
+ * pairing entry point (Add Node scan, the Nodes-tab "+ ADD" / "SCAN FOR
+ * NEARBY NODE" buttons) hidden on iOS while leaving the read-only Nodes
+ * view intact. (Restores the guard removed in a2b33ce8.)
  */
 export function useCaps(user: CapsUser): CapsWithDevice {
   const base = baseCaps(user);
   return {
     ...base,
-    canPairNodeOnThisDevice: base.canPairNode,
+    canPairNodeOnThisDevice: base.canPairNode && Platform.OS === 'android',
   };
 }

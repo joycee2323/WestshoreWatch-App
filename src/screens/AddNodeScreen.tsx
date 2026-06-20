@@ -198,13 +198,21 @@ export default function AddNodeScreen() {
   const s = styles(colors);
 
   if (!canPairNode) {
+    // Reached on iOS for ALL roles (pairing is platform-impossible there) and
+    // on Android only for under-privileged roles. The scanner is never started
+    // in this branch — the effect above early-returns on !canPairNode — so
+    // there is deliberately no ActivityIndicator/spinner here. iOS gets a
+    // platform explanation; Android keeps the role-gate message.
+    const isIos = Platform.OS === 'ios';
     return (
       <ScrollView style={s.page} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
         <Text style={s.title}>ADD NODE</Text>
         <View style={s.empty}>
-          <Text style={s.emptyText}>READ-ONLY</Text>
+          <Text style={s.emptyText}>{isIos ? 'PAIRING UNAVAILABLE' : 'READ-ONLY'}</Text>
           <Text style={s.emptyHint}>
-            Only operators and admins can pair nodes. Ask your organization admin to grant access.
+            {isIos
+              ? 'Node pairing is managed from the Westshore Watch web dashboard or the Android app. This device displays detections from nodes assigned to your deployments.'
+              : 'Only operators and admins can pair nodes. Ask your organization admin to grant access.'}
           </Text>
         </View>
       </ScrollView>
