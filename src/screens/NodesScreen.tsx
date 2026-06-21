@@ -11,6 +11,7 @@ import { api } from '../services/api';
 import { useTheme } from '../theme';
 import { useAuthStore } from '../store/authStore';
 import { useCaps } from '../lib/useCaps';
+import { fmtTemp } from '../utils/units';
 
 // Sort matches the backend (display_order ASC NULLS LAST, name ASC). This is a
 // client-side safety net — the backend already returns nodes pre-sorted, but
@@ -36,8 +37,10 @@ function sortNodes(list: any[]): any[] {
 const CPU_TEMP_AMBER_C = 70;
 const CPU_TEMP_RED_C = 80;
 
-// Rounded "NN°C" label + theme color for a node's cpu_temp_c. Non-finite or
-// absent (X1/M1, or a Sentinel with no current reading) → muted "—".
+// Rounded "NN°F" label + theme color for a node's cpu_temp_c. Non-finite or
+// absent (X1/M1, or a Sentinel with no current reading) → muted "—". Color is
+// decided by comparing the raw CELSIUS value to the C thresholds; only the
+// displayed label is converted to °F via fmtTemp.
 function cpuTempCell(
   celsius: unknown,
   colors: ReturnType<typeof useTheme>,
@@ -46,7 +49,7 @@ function cpuTempCell(
   if (celsius == null || !Number.isFinite(c)) {
     return { label: '—', color: colors.textDim };
   }
-  const label = `${Math.round(c)}°C`;
+  const label = fmtTemp(c);
   if (c >= CPU_TEMP_RED_C) return { label, color: colors.red };
   if (c >= CPU_TEMP_AMBER_C) return { label, color: colors.amber };
   return { label, color: colors.green };
