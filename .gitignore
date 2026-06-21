@@ -13,6 +13,7 @@ ble_log.txt
 
 app-log.txt
 *.logcat
+expo-run-android.log
 
 # Signing credentials - NEVER commit
 *.jks
