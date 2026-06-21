@@ -239,7 +239,7 @@ export default function SettingsScreen() {
         <Text style={s.cardHeader}>APP INFO</Text>
         <Row label="VERSION" value="1.0.0" colors={colors} />
         <Row label="BACKEND" value="watch.westshoredrone.com" colors={colors} />
-        <Row label={Platform.OS === 'android' ? 'BLE SCANNING' : 'DETECTION SOURCE'} value={Platform.OS === 'android' ? 'Active' : 'Connected nodes'} colors={colors} />
+        <Row label="BLE SCANNING" value="Active" colors={colors} />
       </View>
 
       {/* Notifications */}
@@ -291,7 +291,7 @@ export default function SettingsScreen() {
             isLast={false}
           />
         )}
-        {__DEV__ && Platform.OS === 'android' && (
+        {__DEV__ && (
           <SettingRow
             colors={colors}
             label="Watchdog diagnostic"
