@@ -178,7 +178,9 @@ export default function AppNavigator() {
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="Register" component={RegisterScreen} />
             <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-            <Stack.Screen name="GuestScan" component={GuestScanScreen} />
+            {Platform.OS !== 'ios' && (
+              <Stack.Screen name="GuestScan" component={GuestScanScreen} />
+            )}
           </>
         )}
       </Stack.Navigator>

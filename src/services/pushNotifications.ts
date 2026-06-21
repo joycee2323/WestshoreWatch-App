@@ -78,7 +78,6 @@ export const NOTIFICATION_KIND_CHANNELS: Record<string, string> = {
   deployment_expired: 'deployment_alerts',
   node_online: 'node_alerts',
   node_offline: 'node_alerts',
-  node_overheat: 'node_alerts',
   billing_subscription_cancelled: 'billing_alerts',
   billing_payment_failed: 'billing_alerts',
   billing_subscription_expiring: 'billing_alerts',

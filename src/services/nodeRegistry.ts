@@ -13,7 +13,6 @@ export interface NodeInfo {
   connection_type: string | null;
   firmware_version: string | null;
   display_order: number | null;
-  cpu_temp_c?: number | null;   // Sentinel CPU temp (°C); absent on X1/M1.
 }
 
 const cache = new Map<string, NodeInfo>();
