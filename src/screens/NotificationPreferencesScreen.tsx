@@ -41,6 +41,7 @@ const SECTIONS: PrefSection[] = [
     rows: [
       { kind: 'node_online', label: 'Node back online' },
       { kind: 'node_offline', label: 'Node offline' },
+      { kind: 'node_overheat', label: 'Node overheating' },
     ],
   },
   {
