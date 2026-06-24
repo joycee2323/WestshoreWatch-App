@@ -16,7 +16,7 @@ module.exports = ({ config }) => ({
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.westshoredrone.watch',
-      buildNumber: '6',
+      buildNumber: '7',
       config: {
         usesNonExemptEncryption: false,
       },
