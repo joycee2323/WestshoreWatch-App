@@ -176,7 +176,14 @@ export default function AppNavigator() {
         ) : (
           <>
             <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="Register" component={RegisterScreen} />
+            {/* In-app account/org creation is Android/web-only. iOS is
+                sign-in only per App Store Guideline 3.1.1, so the Register
+                route is omitted entirely (its entry point in LoginScreen is
+                also gated out on iOS). RegisterScreen stays imported but
+                unreachable on iOS. */}
+            {Platform.OS !== 'ios' && (
+              <Stack.Screen name="Register" component={RegisterScreen} />
+            )}
             <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
             <Stack.Screen name="GuestScan" component={GuestScanScreen} />
           </>
