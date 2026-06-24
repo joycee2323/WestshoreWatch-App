@@ -146,7 +146,33 @@ export function getDiscoveredNodes(): Map<string, DiscoveredNode> {
 
 let onNodeNearby: ((mac: string, rssi: number) => void) | null = null;
 
-function isWestshoreWatchNode(mac: string): boolean {
+// Identity advert (handle 3) company ID 0x08FE. Native packs it little-endian
+// as the first two bytes of the manufacturerData blob (see BLEScannerService.kt
+// emitScanResult: idBytes = [LSB, MSB]).
+const WESTSHORE_COMPANY_ID_LSB = 0xFE;
+const WESTSHORE_COMPANY_ID_MSB = 0x08;
+
+function isWestshoreWatchNode(mac: string, manufacturerData: string | null): boolean {
+  // Identity advert (handle 3): native packs [companyLSB, companyMSB, ...payload]
+  // into manufacturerData (base64). Presence of the 0x08FE block IS the signal;
+  // no gating on payload length beyond reading the 2-byte company id. Mirrors
+  // the Kotlin isWestshoreWatchNode OR semantics. Do NOT match 0x08FF (that's
+  // the detection advert, handle 2).
+  if (manufacturerData) {
+    try {
+      // atob + charCodeAt for Hermes compatibility (matches odidParser.ts).
+      const bin = atob(manufacturerData);
+      if (
+        bin.length >= 2 &&
+        bin.charCodeAt(0) === WESTSHORE_COMPANY_ID_LSB &&
+        bin.charCodeAt(1) === WESTSHORE_COMPANY_ID_MSB
+      ) {
+        return true;
+      }
+    } catch {
+      // fall through to OUI check
+    }
+  }
   const upper = mac.toUpperCase();
   return upper.startsWith('98:A3:16:7D') || upper.startsWith('38:44:BE');
 }
@@ -170,7 +196,7 @@ export async function startBleScanning(
     const mac = device.mac;
     const serviceDataMap = device.serviceData;
 
-    if (isWestshoreWatchNode(mac)) {
+    if (isWestshoreWatchNode(mac, device.manufacturerData)) {
       const macUpper = mac.toUpperCase();
       discoveredNodes.set(macUpper, {
         mac: macUpper,

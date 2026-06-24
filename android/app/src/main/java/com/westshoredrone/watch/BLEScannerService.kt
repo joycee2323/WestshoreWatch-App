@@ -11,6 +11,7 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanRecord
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
@@ -376,7 +377,7 @@ class BLEScannerService : Service() {
         // JS (LiveMapScreen.tsx) and froze under Doze; running it here lets
         // heartbeats survive screen-off.
         val macUpper = mac.uppercase()
-        if (isWestshoreWatchNode(macUpper)) {
+        if (isWestshoreWatchNode(macUpper, record)) {
             val deviceId = macUpper.replace(":", "").replace("-", "")
             heartbeat?.markNodeSeen(deviceId)
         }
@@ -384,11 +385,12 @@ class BLEScannerService : Service() {
         // Now do the Kotlin-side upload path. Screen-off Doze suspends the JS
         // runtime, so parsing + POSTing here keeps detections flowing even
         // when the JS listener is dormant.
-        maybeEnqueueForUpload(macUpper, record?.serviceData)
+        maybeEnqueueForUpload(macUpper, record)
     }
 
-    private fun maybeEnqueueForUpload(sourceMacUpper: String, serviceData: Map<android.os.ParcelUuid, ByteArray>?) {
+    private fun maybeEnqueueForUpload(sourceMacUpper: String, record: ScanRecord?) {
         val up = uploader ?: return
+        val serviceData = record?.serviceData
         if (serviceData == null) return
         val odidBytes = serviceData.entries.firstOrNull {
             it.key.uuid.toString().equals(ODID_SERVICE_UUID, ignoreCase = true)
@@ -439,7 +441,7 @@ class BLEScannerService : Service() {
         }
 
         if (effectiveUasId == null) return
-        if (!isWestshoreWatchNode(sourceMacUpper)) return
+        if (!isWestshoreWatchNode(sourceMacUpper, record)) return
 
         val lat = parsed.lat ?: return
         val lon = parsed.lon ?: return
@@ -462,7 +464,13 @@ class BLEScannerService : Service() {
         )
     }
 
-    private fun isWestshoreWatchNode(macUpper: String): Boolean {
+    private fun isWestshoreWatchNode(macUpper: String, record: ScanRecord?): Boolean {
+        // Identity advert (handle 3) carries manufacturer-specific data under
+        // company 0x08FE. Its presence IS the recognition signal — no payload-
+        // length gating. Fallback to the legacy OUI allowlist for older fleet
+        // and for adverts that don't carry the identity block (e.g. detection
+        // advert, ODID relay).
+        if (record?.getManufacturerSpecificData(WESTSHORE_COMPANY_ID) != null) return true
         return macUpper.startsWith("98:A3:16:7D") || macUpper.startsWith("38:44:BE")
     }
 
