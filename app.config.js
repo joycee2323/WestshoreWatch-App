@@ -2,7 +2,7 @@ module.exports = ({ config }) => ({
   expo: {
     name: 'Westshore Watch',
     slug: 'westshorewatch',
-    version: '1.0.2',
+    version: '1.0.3',
     orientation: 'default',
     icon: './assets/icon.png',
     scheme: 'westshorewatch',
