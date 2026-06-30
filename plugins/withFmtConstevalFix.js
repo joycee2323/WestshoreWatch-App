@@ -21,6 +21,12 @@
  * patch), the plugin is a no-op and cannot double-inject. The snippet itself
  * carries a second, C-comment copy of the same sentinel so the runtime patch of
  * fmt/base.h is likewise applied at most once.
+ *
+ * KNOWN LIMITATION (non-urgent): on the current Xcode 26.2 image this patch is a
+ * no-op — fmt/base.h unconditionally redefines FMT_USE_CONSTEVAL=1 after our
+ * top-of-file define (380 -Wmacro-redefined warnings confirm it), so it would
+ * NOT actually protect against the Xcode 26.4 consteval break it targets. Harden
+ * before EAS moves to a 26.4 image. See docs/ios-known-issues.md.
  */
 const { withDangerousMod } = require('@expo/config-plugins');
 const fs = require('fs');
