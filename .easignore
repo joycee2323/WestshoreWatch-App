@@ -19,6 +19,15 @@ ble_log.txt
 app-log.txt
 *.logcat
 
+# Root generated iOS project. The app is prebuild-managed: EAS regenerates
+# ios/ from app.config.js + the config plugins (withBleScanner, with
+# FmtConstevalFix) on every cloud build, so app.config.js is the single source
+# of truth for build number, Info.plist, entitlements, and the native BLE
+# module. LEADING SLASH IS REQUIRED — it anchors this to the repo-root ios/
+# only. A bare `ios` would also match plugins/ios/BLEScanner/ (the canonical
+# native source), excluding it from the upload and breaking the prebuild.
+/ios
+
 # Signing credentials - NEVER commit
 *.jks
 *.pem

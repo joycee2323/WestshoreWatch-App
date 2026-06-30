@@ -6,6 +6,9 @@ import MapboxGL from '@rnmapbox/maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import KeepScreenOnToggle from '../components/KeepScreenOnToggle';
+import KeepScreenActiveModal from '../components/KeepScreenActiveModal';
+import DetectionLimitedBanner from '../components/DetectionLimitedBanner';
+import { useScanActiveWarning } from '../hooks/useScanActiveWarning';
 import { useDroneStore } from '../store/droneStore';
 import { useAuthStore } from '../store/authStore';
 import { createWebSocket, api, ReconnectingWebSocket, SubscribeMessage } from '../services/api';
@@ -55,6 +58,10 @@ export default function LiveMapScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const route = useRoute();
+
+  // iOS background-during-scan warning (notification, or banner fallback when
+  // notification permission is denied). Tied to the real scanner state.
+  const { showBanner: showScanWarning, dismissBanner: dismissScanWarning } = useScanActiveWarning();
 
   // Mirrors the most recent push-notification deep-link hint. The push
   // payload's `data.deployment_id` is forwarded through navigation params
@@ -1230,6 +1237,14 @@ export default function LiveMapScreen() {
           </View>
         </View>
       )}
+
+      {/* iOS: nudge to keep the app open when backgrounded mid-scan, shown
+          only when notification permission is denied (otherwise an OS
+          notification is used instead). */}
+      <DetectionLimitedBanner visible={showScanWarning} onDismiss={dismissScanWarning} />
+
+      {/* iOS: one-time "keep screen active" warning on first entry. */}
+      <KeepScreenActiveModal storageKey="seenMapWarning_liveMap" />
 
       {/* Selected drone sheet */}
       {selectedDrone && (() => {

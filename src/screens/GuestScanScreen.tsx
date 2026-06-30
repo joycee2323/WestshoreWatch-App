@@ -10,6 +10,9 @@ import { useDroneStore, DroneEntry } from '../store/droneStore';
 import { startBleScanning, stopBleScanning, getBridgeInRange } from '../services/bleScanner';
 import { useTheme, getDroneColor } from '../theme';
 import KeepScreenOnToggle from '../components/KeepScreenOnToggle';
+import KeepScreenActiveModal from '../components/KeepScreenActiveModal';
+import DetectionLimitedBanner from '../components/DetectionLimitedBanner';
+import { useScanActiveWarning } from '../hooks/useScanActiveWarning';
 import * as Location from 'expo-location';
 import { OP_STATUS_AIRBORNE } from '../services/odidParser';
 import { fmtAltitude, fmtSpeed } from '../utils/units';
@@ -69,6 +72,10 @@ export default function GuestScanScreen({ navigation }: any) {
   const featureTappedRef = useRef(false);
   const [locationGranted, setLocationGranted] = useState(false);
   const cameraRef = useRef<MapboxGL.Camera>(null);
+
+  // iOS background-during-scan warning (notification, or banner fallback when
+  // notification permission is denied). Tied to the real scanner state.
+  const { showBanner: showScanWarning, dismissBanner: dismissScanWarning } = useScanActiveWarning();
 
   // DroneScout bridge proximity ("NODE" badge) — protocol-signature proximity,
   // NOT node identity (see bleScanner). bleScanner emits on in/out-of-range
@@ -359,6 +366,19 @@ export default function GuestScanScreen({ navigation }: any) {
           </View>
         );
       })()}
+
+      {/* iOS: nudge to keep the app open when backgrounded mid-scan, shown
+          only when notification permission is denied (otherwise an OS
+          notification is used instead). topOffset keeps it below the centered
+          "N DRONES DETECTED" count badge (top 108) so they never collide. */}
+      <DetectionLimitedBanner
+        visible={showScanWarning}
+        onDismiss={dismissScanWarning}
+        topOffset={Platform.OS === 'ios' ? 150 : 134}
+      />
+
+      {/* iOS: one-time "keep screen active" warning on first entry. */}
+      <KeepScreenActiveModal storageKey="seenMapWarning_guestScan" />
     </View>
   );
 }

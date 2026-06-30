@@ -2,7 +2,7 @@ module.exports = ({ config }) => ({
   expo: {
     name: 'Westshore Watch',
     slug: 'westshorewatch',
-    version: '1.0.2',
+    version: '1.0.3',
     orientation: 'default',
     icon: './assets/icon.png',
     scheme: 'westshorewatch',
@@ -16,7 +16,7 @@ module.exports = ({ config }) => ({
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.westshoredrone.watch',
-      buildNumber: '7',
+      buildNumber: '8',
       config: {
         usesNonExemptEncryption: false,
       },
@@ -121,6 +121,11 @@ module.exports = ({ config }) => ({
       // plugins/ios/BLEScanner/. See plugins/withBleScanner.js. No-op on Android
       // (the Android module ships as committed Kotlin under android/).
       './plugins/withBleScanner',
+      // Re-applies the fmt/FMT_USE_CONSTEVAL=0 Podfile post_install patch on
+      // every prebuild (required to compile fmt 11.x under recent Xcode/clang).
+      // Needed now that ios/ is .easignored and regenerated on each cloud build.
+      // See plugins/withFmtConstevalFix.js. No-op on Android.
+      './plugins/withFmtConstevalFix',
     ],
     extra: {
       eas: {
