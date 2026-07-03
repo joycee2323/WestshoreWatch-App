@@ -2,7 +2,7 @@ module.exports = ({ config }) => ({
   expo: {
     name: 'Westshore Watch',
     slug: 'westshorewatch',
-    version: '1.0.3',
+    version: '1.1.0',
     orientation: 'default',
     icon: './assets/icon.png',
     scheme: 'westshorewatch',
@@ -16,7 +16,7 @@ module.exports = ({ config }) => ({
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.westshoredrone.watch',
-      buildNumber: '8',
+      buildNumber: '9',
       config: {
         usesNonExemptEncryption: false,
       },

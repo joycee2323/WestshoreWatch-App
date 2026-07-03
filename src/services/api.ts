@@ -330,7 +330,10 @@ export type WsStatus = 'connecting' | 'connected' | 'reconnecting' | 'closed';
 // accessible orgs. Replacing one with the other on the live socket is
 // done via ReconnectingWebSocket.resubscribe — no need to tear down.
 export type SubscribeMessage =
-  | { type: 'SUBSCRIBE'; deployment_ids: string[] }
+  // include_owned_nodes: active-mode opt-in so the server also delivers live
+  // detections from nodes THIS org owns but has lent into a deployment we are
+  // NOT subscribed to (Gate-2 relaxation, strictly node_owner_org_id === own org).
+  | { type: 'SUBSCRIBE'; deployment_ids: string[]; include_owned_nodes?: boolean }
   | { type: 'SUBSCRIBE_ORG' };
 
 export interface ReconnectingWebSocket {
