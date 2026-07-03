@@ -27,6 +27,16 @@ const NICKNAME_MAX = 30;
 // the app sees per session, which is small in practice.
 const loggedSkippedUasIds = new Set<string>();
 
+// A detection is "lent-external" (owner view) when it comes from a node THIS
+// org owns but is deployed in another org's deployment: node_org_id is mine and
+// deployment_org_id is someone else's. Derived from the explicit org fields the
+// server stamps (WS DRONE_UPDATE dual-org / REST /recent) — never from
+// client-side fleet guessing. Drives the distinguished render + the render/
+// eviction exemptions so a lent detection shows tagged, not mixed into own-ops.
+function isLentExternal(d: any, orgId?: string | null): boolean {
+  return !!(orgId && d?.node_org_id === orgId && d?.deployment_org_id && d?.deployment_org_id !== orgId);
+}
+
 export default function LiveMapScreen() {
   const colors = useTheme();
   const insets = useSafeAreaInsets();
@@ -251,7 +261,11 @@ export default function LiveMapScreen() {
     // Active mode: scope drones to the selected deployment(s). WS already
     // subscribes to only the visible scope, so this is mostly belt-and-
     // suspenders against the brief resubscribe race on selection change.
-    : Object.values(backendDrones).filter((d: any) => visibleSet.has(d.deployment_id));
+    // ALSO keep lent-external detections (a node I own, operating in another
+    // org's deployment) — they're outside visibleSet by definition, and the
+    // tag predicate (not a widened visibleSet) is what keeps them, so it stays
+    // explicit and consistent with the distinguished render below.
+    : Object.values(backendDrones).filter((d: any) => visibleSet.has(d.deployment_id) || isLentExternal(d, orgId));
   const nodesToRender = isPassive ? passiveNodes : nodes;
 
   // SINGLE source of truth for what's drawn AND counted: every node with
@@ -524,6 +538,24 @@ export default function LiveMapScreen() {
     }
   }, []);
 
+  // Merge in detections from nodes THIS org owns but has lent into another
+  // org's deployment. Active-mode getDetections is scoped to my own
+  // deployments and never returns these; the owner-widened /recent does (its
+  // `OR n.org_id = ownerOrg` clause, bound per-caller — it can only ever
+  // surface MY own nodes). Filter to the lent-external subset and merge so they
+  // show tagged. Safe to run in any mode/selection (no leak, cheap).
+  const hydrateLentExternal = useCallback(async () => {
+    if (!orgId) return;
+    try {
+      const rows = await api.getRecentDetections(PASSIVE_RECENCY_MIN);
+      (Array.isArray(rows) ? rows : [])
+        .filter((d: any) => isLentExternal(d, orgId))
+        .forEach((d: any) => updateBackendDrone(d));
+    } catch (err) {
+      console.warn('[livemap] lent-external hydrate failed:', err);
+    }
+  }, [orgId, updateBackendDrone]);
+
   // Apply a deployment scope selection within active mode. Drives the WS
   // subscription, evicts drones outside the selected scope (so markers and
   // the DRONES count match the selection), hydrates detections + nodes for
@@ -554,12 +586,24 @@ export default function LiveMapScreen() {
       const idx = k.indexOf(':');
       if (idx > 0) known.add(k.slice(0, idx));
     }
+    // Deployments that hold lent-external detections (nodes I own operating in
+    // another org's airspace) are NOT my active deployments — exempt them from
+    // selection eviction so switching among my OWN deployments doesn't wipe the
+    // lent node's markers.
+    const lentDepIds = new Set<string>(
+      Object.values(useDroneStore.getState().backendDrones)
+        .filter((d: any) => isLentExternal(d, orgId))
+        .map((d: any) => d.deployment_id)
+    );
     for (const id of known) {
-      if (!visibleSet.has(id)) clearBackendDronesForDeployment(id);
+      if (!visibleSet.has(id) && !lentDepIds.has(id)) clearBackendDronesForDeployment(id);
     }
 
-    // WS follows the selection — subscribe to exactly the visible scope.
-    setWsSubscription({ type: 'SUBSCRIBE', deployment_ids: visibleIds });
+    // WS follows the selection — subscribe to the visible scope, plus opt in to
+    // owned-but-lent nodes so live detections from a node I own operating in
+    // another org's deployment aren't dropped by the server's Gate-2
+    // subscription filter (Gate 1 already authorizes them as owner).
+    setWsSubscription({ type: 'SUBSCRIBE', deployment_ids: visibleIds, include_owned_nodes: true });
 
     // Hydrate detections + nodes for the visible scope.
     for (const id of visibleIds) {
@@ -570,8 +614,12 @@ export default function LiveMapScreen() {
         console.warn(`[livemap] detection hydrate failed for ${id}:`, err);
       }
     }
+    // Merge lent-external detections (owner-widened /recent) so active-mode
+    // initial load shows a lent node even though getDetections above is scoped
+    // to my own deployments and never returns it. Per-caller-bound server-side.
+    await hydrateLentExternal();
     await refetchNodes(visibleIds);
-  }, [setWsSubscription, clearBackendDronesForDeployment, updateBackendDrone, refetchNodes]);
+  }, [setWsSubscription, clearBackendDronesForDeployment, updateBackendDrone, refetchNodes, hydrateLentExternal, orgId]);
 
   // Side effect: switch the screen into active mode for the given set of
   // currently-active deployments. Idempotent on same-set (no resubscribe,
@@ -829,6 +877,9 @@ export default function LiveMapScreen() {
             console.warn(`[livemap] detection refetch failed for ${id}:`, err);
           }
         }
+        // Also re-merge lent-external detections (owner-widened /recent), which
+        // the per-deployment refetch above never returns.
+        await hydrateLentExternal();
       }
       if (nodes) {
         // Refetch nodes for every currently-active deployment. ref is
@@ -843,7 +894,7 @@ export default function LiveMapScreen() {
       // arrival.
       startPassivePollingRef.current?.();
     }
-  }, [enterActiveMode, enterPassiveMode, updateBackendDrone, refetchNodes]);
+  }, [enterActiveMode, enterPassiveMode, updateBackendDrone, refetchNodes, hydrateLentExternal]);
 
   const loadActiveDeployment = useCallback(async () => {
     await refreshLiveMapState({ detections: true, nodes: true, reevaluateMode: true });
@@ -886,7 +937,14 @@ export default function LiveMapScreen() {
   const connectWebSocket = useCallback((subscribe: SubscribeMessage) => {
     const ws = createWebSocket(subscribe, (msg) => {
       if (msg.type === 'DRONE_UPDATE') {
-        msg.drones.forEach((d: any) => updateBackendDrone(d));
+        // Attach the message-level dual-org stamps (piece 1) onto each drone so
+        // it carries node_org_id/deployment_org_id for the lent-external tag.
+        // For a non-lent node the two orgs are equal, so nothing gets tagged.
+        msg.drones.forEach((d: any) => updateBackendDrone({
+          ...d,
+          node_org_id: msg.node_owner_org_id ?? d.node_org_id ?? null,
+          deployment_org_id: msg.deployment_org_id ?? d.deployment_org_id ?? null,
+        }));
       }
       if (msg.type === 'NICKNAME_UPDATE') {
         // Backend broadcasts to all clients; ignore other orgs.
@@ -1086,6 +1144,11 @@ export default function LiveMapScreen() {
               .map((d: any) => {
                 const id = d.uasId || d.uas_id || d.mac;
                 const hdg = d.heading ?? d.last_heading ?? 0;
+                // Lent-external tag (owner view): a node I own operating in
+                // another org's deployment. Distinct glyph + a "· lent" label
+                // suffix (generic — never the lendee's deployment nickname).
+                const lent = isLentExternal(d, orgId);
+                const baseLabel = nicknames[d.uasId || d.uas_id] || d.uasId || d.uas_id || id.slice(-5);
                 return {
                   type: 'Feature' as const,
                   id,
@@ -1097,7 +1160,8 @@ export default function LiveMapScreen() {
                     droneId: id,
                     heading: hdg,
                     color: getDroneColor(id),
-                    label: nicknames[d.uasId || d.uas_id] || d.uasId || d.uas_id || id.slice(-5),
+                    isLent: lent,
+                    label: lent ? `${baseLabel} · lent` : baseLabel,
                     opacity: (isPassive ? 0.6 : 1.0) *
                       (selectedId == null || selectedId === id ? 1.0 : 0.5),
                   },
@@ -1123,11 +1187,14 @@ export default function LiveMapScreen() {
           <MapboxGL.SymbolLayer
             id="drone-icons"
             style={{
-              textField: '⊕',
+              // Lent-external detections render as a diamond with a white halo
+              // (echoing the dashboard's diamond+dashed) so they read as
+              // external; own-ops detections keep the ⊕ in the drone color.
+              textField: ['case', ['==', ['get', 'isLent'], true], '◈', '⊕'],
               textSize: 30,
               textColor: ['get', 'color'],
-              textHaloColor: ['get', 'color'],
-              textHaloWidth: 1,
+              textHaloColor: ['case', ['==', ['get', 'isLent'], true], '#ffffff', ['get', 'color']],
+              textHaloWidth: ['case', ['==', ['get', 'isLent'], true], 2.5, 1],
               textOpacity: ['get', 'opacity'],
               textAllowOverlap: true,
               textIgnorePlacement: true,
