@@ -5,6 +5,10 @@ import { Platform } from 'react-native';
 
 const BASE = 'https://api.westshoredrone.com/api';
 
+// Exposed so the Wear enrollment handshake can hand the watch its apiBase in the
+// Data Layer payload (the watch redeems the code at `${API_BASE}/auth/device/enroll`).
+export const API_BASE = BASE;
+
 async function getToken(): Promise<string | null> {
   return SecureStore.getItemAsync('auth_token');
 }
@@ -53,6 +57,15 @@ function buildClientHeaders(): Readonly<Record<string, string>> {
     if (Platform.OS === 'android' || Platform.OS === 'ios') {
       out['X-Client-Platform'] = Platform.OS;
     }
+
+    // Client TYPE is a DIFFERENT axis from platform (backend migration 067):
+    // platform = which OS ('android'|'ios'), client_type = which app. This app
+    // is the 'phone' client; the Wear companion enrolls as 'wear'. Populates
+    // login_audit.client_type + users.last_client_type so a session is
+    // attributable to the right device even though both are Android. Sent on
+    // every request (incl. the login POST) via the shared CLIENT_HEADERS spread,
+    // so it lands on the login_audit row too.
+    out['X-Client-Type'] = 'phone';
 
     const osName = Device.osName;
     const osVersion = Device.osVersion;
@@ -276,6 +289,19 @@ export const api = {
     request('POST', '/users/push-token', { token, platform }),
   revokePushTokenServer: (token: string) =>
     request('DELETE', '/users/push-token', { token }),
+
+  // Wear OS companion — phone side of the one-time enrollment handshake.
+  // getWearEnrollCode mints a short-lived (90s) single-use code on the backend
+  // (authenticated as this user); the code is then handed to the watch over the
+  // Wearable Data Layer (see WearBridge). The raw user JWT is NEVER sent to the
+  // watch — the watch redeems the code at /auth/device/enroll for its own
+  // device tokens. list/revoke power a "my watches" management view.
+  getWearEnrollCode: (): Promise<{ code: string; expiresIn: number }> =>
+    request('POST', '/auth/device/enroll-code'),
+  listWearDevices: (): Promise<{ devices: Array<Record<string, unknown>> }> =>
+    request('GET', '/auth/device'),
+  revokeWearDevice: (deviceId: string) =>
+    request('POST', `/auth/device/${encodeURIComponent(deviceId)}/revoke`),
   listNotifications: (params?: { limit?: number; before?: string }) => {
     const qs: string[] = [];
     if (params?.limit) qs.push(`limit=${encodeURIComponent(String(params.limit))}`);

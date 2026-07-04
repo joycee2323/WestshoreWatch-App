@@ -159,6 +159,13 @@ dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 
+    // Wearable Data Layer for the Wear OS enrollment handshake (WearBridgeModule).
+    // NOTE: this android/ dir is a committed CNG prebuild; if you ever run
+    // `expo prebuild --clean`, this dep + WearBridge* modules + the
+    // MainApplication registration must be re-applied (or lifted into an Expo
+    // config plugin). Same caveat as the existing BLEScanner native module.
+    implementation("com.google.android.gms:play-services-wearable:18.2.0")
+
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
     def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";
     def isWebpAnimatedEnabled = (findProperty('expo.webp.animated') ?: "") == "true";

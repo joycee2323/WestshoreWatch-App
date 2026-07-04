@@ -25,6 +25,7 @@ class MainApplication : Application(), ReactApplication {
             val packages = PackageList(this).packages
             packages.add(BLEScannerPackage())
             packages.add(KeepScreenOnPackage())
+            packages.add(WearBridgePackage())
             return packages
           }
 
