@@ -292,6 +292,17 @@ export async function revokePushToken(): Promise<void> {
   }
 }
 
+// Coerce a push-data value that may arrive as a number (Expo path) or a
+// string (FCM stringifies all data values) into a finite number, else null.
+function toFiniteNumber(v: any): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
 // Map a notification payload's `screen` field to a navigation action.
 // Called by the response listener and by in-app row taps.
 export function deepLinkForNotification(navigation: any, data: any): void {
@@ -300,19 +311,26 @@ export function deepLinkForNotification(navigation: any, data: any): void {
   const deploymentId = data && typeof data.deployment_id === 'string' ? data.deployment_id : undefined;
   try {
     switch (screen) {
-      case 'LiveMap':
-        // Forward deployment_id as `targetDeploymentId` so LiveMap can
-        // bias its active/passive mode decision toward the deployment
-        // the push referenced — necessary when the user has multiple
-        // active deployments and the .find() default would pick the
-        // wrong one. Backend always includes deployment_id in
-        // drone_detected push data (see routes/detections.js and
-        // routes/nodes.js sendNotificationToOrg sites).
-        navigation.navigate('Main', {
-          screen: 'LiveMap',
-          params: deploymentId ? { targetDeploymentId: deploymentId } : undefined,
-        });
+      case 'LiveMap': {
+        // Forward deployment_id as `targetDeploymentId` so LiveMap can bias
+        // its active/passive mode decision toward the deployment the push
+        // referenced. Also forward the drone identity (`uas_id`) and its seed
+        // coords (`lat`/`lng`) so LiveMap can snap to the specific drone, not
+        // just its deployment. All of uas_id/lat/lng are OPTIONAL — older push
+        // payloads omit them and LiveMap degrades to newest-in-deployment
+        // centering. `focusNonce` guarantees LiveMap's focus effect re-runs
+        // even when the same notification is tapped twice (identical params).
+        const uasId = data && typeof data.uas_id === 'string' ? data.uas_id : undefined;
+        const lat = toFiniteNumber(data && data.lat);
+        const lng = toFiniteNumber(data && data.lng);
+        const params: Record<string, any> = { focusNonce: Date.now() };
+        if (deploymentId) params.targetDeploymentId = deploymentId;
+        if (uasId) params.targetUasId = uasId;
+        if (lat != null) params.targetLat = lat;
+        if (lng != null) params.targetLon = lng;
+        navigation.navigate('Main', { screen: 'LiveMap', params });
         break;
+      }
       case 'DeploymentDetail':
         navigation.navigate('Main', { screen: 'Deployments', params: { deployment_id: deploymentId } });
         break;
