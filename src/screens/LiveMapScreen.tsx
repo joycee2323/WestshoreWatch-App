@@ -6,7 +6,7 @@ import MapboxGL from '@rnmapbox/maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import KeepScreenOnToggle from '../components/KeepScreenOnToggle';
-import { useDroneStore } from '../store/droneStore';
+import { useDroneStore, makeBackendDroneKey } from '../store/droneStore';
 import { useAuthStore } from '../store/authStore';
 import { createWebSocket, api, ReconnectingWebSocket, SubscribeMessage } from '../services/api';
 import { useTheme, getDroneColor } from '../theme';
@@ -50,10 +50,40 @@ export default function LiveMapScreen() {
   // selection logic inside refreshLiveMapState can pick up the latest
   // value without re-creating its useCallback closure every nav.
   const targetDeploymentIdRef = useRef<string | undefined>(undefined);
+  // One-shot focus request from a tapped detection notification.
+  // deepLinkForNotification forwards `focusNonce` plus optional targetUasId /
+  // targetLat / targetLon alongside targetDeploymentId. We stash the latest
+  // request in a ref and bump `focusTick` to drive the focus effect further
+  // down. uas_id/coords are optional (older push payloads omit them) — the
+  // focus logic degrades to newest-in-deployment centering when absent.
+  const focusRequestRef = useRef<{
+    nonce: number;
+    deploymentId?: string;
+    uasId?: string;
+    lat?: number;
+    lon?: number;
+  } | null>(null);
+  const lastFocusNonceRef = useRef<number>(0);
+  const [focusTick, setFocusTick] = useState(0);
   useEffect(() => {
-    const t = (route.params as any)?.targetDeploymentId;
+    const p = route.params as any;
+    const t = p?.targetDeploymentId;
     if (typeof t === 'string' && t.length > 0) {
       targetDeploymentIdRef.current = t;
+    }
+    const nonce = typeof p?.focusNonce === 'number' ? p.focusNonce : undefined;
+    if (nonce && nonce !== lastFocusNonceRef.current) {
+      focusRequestRef.current = {
+        nonce,
+        deploymentId: typeof t === 'string' && t.length > 0 ? t : undefined,
+        uasId: typeof p?.targetUasId === 'string' ? p.targetUasId : undefined,
+        lat: typeof p?.targetLat === 'number' ? p.targetLat : undefined,
+        lon: typeof p?.targetLon === 'number' ? p.targetLon : undefined,
+      };
+      // Suppress the one-time default centering below — a notification focus
+      // owns the camera from here on.
+      hasInitiallyCenteredRef.current = true;
+      setFocusTick(x => x + 1);
     }
   }, [route.params]);
 
@@ -203,6 +233,11 @@ export default function LiveMapScreen() {
 
   const [selectedDrone, setSelectedDrone] = useState<any>(null);
   const [sheetCollapsed, setSheetCollapsed] = useState(false);
+  // A notification-focus target whose drone isn't in the store yet (live-only,
+  // not arrived via WS). The store watcher below snaps + selects it when it
+  // lands; a bounded timer clears it so a late arrival never yanks the camera.
+  const [pendingFocus, setPendingFocus] = useState<{ deploymentId: string; uasId: string } | null>(null);
+  const pendingFocusTimer = useRef<any>(null);
   // Set by the drone marker's onPress so a tap that hits a feature doesn't
   // also fire the MapView's onPress and immediately clear the selection.
   const featureTappedRef = useRef(false);
@@ -703,46 +738,10 @@ export default function LiveMapScreen() {
     // node hydrate for the chosen scope.
     await applySelection(nextSel);
 
-    // Cold-start-from-notification UX hint: if a target deployment was
-    // deep-linked and is in the active set, nudge the map toward it.
-    // Best-effort and bounded: the user can pan/zoom afterward. Trying
-    // a drone's last position first, then a node's, then giving up.
-    if (targetId && nextSet.has(targetId) && cameraRef.current) {
-      const all = Object.values(useDroneStore.getState().backendDrones) as any[];
-      const fromTarget = all
-        .filter((d: any) =>
-          d.deployment_id === targetId
-          && typeof d.last_lat === 'number'
-          && typeof d.last_lon === 'number')
-        .sort((a: any, b: any) =>
-          new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime());
-      const drone = fromTarget[0];
-      if (drone) {
-        try {
-          cameraRef.current.setCamera({
-            centerCoordinate: [drone.last_lon, drone.last_lat],
-            zoomLevel: 14,
-            animationDuration: 800,
-          });
-        } catch (err) {
-          console.warn('[livemap] target camera setCamera failed:', err);
-        }
-      } else {
-        const node = nodesRef.current.find((n: any) =>
-          typeof n.last_lat === 'number' && typeof n.last_lon === 'number');
-        if (node) {
-          try {
-            cameraRef.current.setCamera({
-              centerCoordinate: [node.last_lon, node.last_lat],
-              zoomLevel: 14,
-              animationDuration: 800,
-            });
-          } catch (err) {
-            console.warn('[livemap] target camera setCamera failed:', err);
-          }
-        }
-      }
-    }
+    // Camera focus for a deep-linked notification is handled centrally by
+    // focusDrone (driven by the route-param focus request), which snaps to the
+    // specific drone once this scope has hydrated. enterActiveMode only sets
+    // the deployment scope now; it no longer moves the camera.
   }, [applySelection, clearBackendDronesForDeployment]);
 
   // Side effect: switch into passive mode. WS stays connected (under a
@@ -899,6 +898,159 @@ export default function LiveMapScreen() {
   const loadActiveDeployment = useCallback(async () => {
     await refreshLiveMapState({ detections: true, nodes: true, reevaluateMode: true });
   }, [refreshLiveMapState]);
+
+  // ── Notification focus ────────────────────────────────────────────────
+  // Snap the map to the drone a detection notification references. Single
+  // funnel for all three tap entry points (cold start, background/warm, in-app
+  // center) — they each land here via route params (see the intake effect near
+  // the top + deepLinkForNotification). Sequencing: seed the camera on the
+  // payload coords immediately (never fly to empty space), switch + hydrate the
+  // deployment scope FIRST, then snap to the live marker and select it.
+  const FOCUS_PENDING_TIMEOUT_MS = 4000;
+
+  const flyToCoords = useCallback((lon: number, lat: number, zoom: number) => {
+    if (!cameraRef.current) return;
+    try {
+      cameraRef.current.setCamera({
+        centerCoordinate: [lon, lat],
+        zoomLevel: zoom,
+        animationDuration: 800,
+      });
+    } catch (err) {
+      console.warn('[livemap] focus setCamera failed:', err);
+    }
+  }, []);
+
+  // Snap to + select the drone keyed by (deploymentId, uasId) if it's in the
+  // store with valid coords. Returns true when it found and focused it.
+  const focusByKey = useCallback((deploymentId: string, uasId: string): boolean => {
+    const d: any = (useDroneStore.getState().backendDrones as any)[
+      makeBackendDroneKey(deploymentId, uasId)
+    ];
+    if (d && typeof d.last_lat === 'number' && typeof d.last_lon === 'number') {
+      flyToCoords(d.last_lon, d.last_lat, 15);
+      setSelectedDrone(d);
+      setSheetCollapsed(false);
+      return true;
+    }
+    return false;
+  }, [flyToCoords]);
+
+  const focusDrone = useCallback(async (req: {
+    deploymentId?: string;
+    uasId?: string;
+    lat?: number;
+    lon?: number;
+  }) => {
+    const { deploymentId, uasId, lat, lon } = req;
+
+    // 1. Seed the camera immediately from the payload coords so we land in the
+    //    right place even before the deployment's live data hydrates — and even
+    //    if the drone has since gone stale/offline and never re-arrives.
+    if (typeof lat === 'number' && typeof lon === 'number') {
+      flyToCoords(lon, lat, 15);
+    }
+
+    if (!deploymentId) return;
+
+    // 2. Make the target deployment the active/selected scope so its drones
+    //    hydrate into the store and render. targetDeploymentIdRef also biases
+    //    enterActiveMode's primary selection if a reevaluate runs concurrently.
+    targetDeploymentIdRef.current = deploymentId;
+    try {
+      if (currentActiveIdsRef.current.includes(deploymentId)) {
+        if (selectedDeploymentIdRef.current !== deploymentId) {
+          await applySelection(deploymentId);
+        }
+      } else {
+        // Not in the current active set (we may be passive, or the set is stale
+        // after a background). Re-evaluate against a fresh deployments fetch; if
+        // the target is active this enters active mode and selects it. If it has
+        // ended, we stay passive and the drone may still be in recent detections.
+        await refreshRef.current?.({ detections: true, nodes: true, reevaluateMode: true });
+      }
+    } catch (err) {
+      console.warn('[livemap] focus scope switch failed:', err);
+    }
+
+    // 3. Snap to the specific drone once its scope has hydrated.
+    if (uasId) {
+      if (focusByKey(deploymentId, uasId)) return;
+      // Not in the store yet (live-only, hasn't arrived via WS). Arm a bounded
+      // pending focus — the store watcher below snaps + selects when it lands.
+      // On expiry we've already moved to the seed coords, so we just stop
+      // waiting (no late camera jump).
+      if (pendingFocusTimer.current) clearTimeout(pendingFocusTimer.current);
+      setPendingFocus({ deploymentId, uasId });
+      pendingFocusTimer.current = setTimeout(() => {
+        pendingFocusTimer.current = null;
+        setPendingFocus(null);
+      }, FOCUS_PENDING_TIMEOUT_MS);
+      return;
+    }
+
+    // 4. Deployment-only payload (older backend, no uas_id): center on the
+    //    newest drone in the deployment, else a node — mirroring the prior
+    //    deep-link nudge. Skip the node fallback if we already seeded from coords.
+    const all = Object.values(useDroneStore.getState().backendDrones) as any[];
+    const newest = all
+      .filter((d: any) =>
+        d.deployment_id === deploymentId
+        && typeof d.last_lat === 'number'
+        && typeof d.last_lon === 'number')
+      .sort((a: any, b: any) =>
+        new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime())[0];
+    if (newest) {
+      flyToCoords(newest.last_lon, newest.last_lat, 14);
+      return;
+    }
+    if (typeof lat === 'number' && typeof lon === 'number') return; // already seeded
+    const node = nodesRef.current.find((n: any) =>
+      typeof n.last_lat === 'number' && typeof n.last_lon === 'number');
+    if (node) flyToCoords(node.last_lon, node.last_lat, 14);
+  }, [applySelection, flyToCoords, focusByKey]);
+
+  // Drive focusDrone from the one-shot request stashed by the route-param
+  // intake effect. The nonce guard fires it exactly once per tap even if
+  // focusDrone's identity churns.
+  useEffect(() => {
+    if (focusTick === 0) return;
+    const req = focusRequestRef.current;
+    if (!req || req.nonce === lastFocusNonceRef.current) return;
+    lastFocusNonceRef.current = req.nonce;
+    void focusDrone({
+      deploymentId: req.deploymentId,
+      uasId: req.uasId,
+      lat: req.lat,
+      lon: req.lon,
+    });
+  }, [focusTick, focusDrone]);
+
+  // Pending-focus watcher: when the awaited drone finally lands in the store
+  // (via WS/hydrate), snap + select it. backendDrones is a subscribed store
+  // slice, so this re-runs on every detection update until the pending focus
+  // resolves or its timeout clears it.
+  useEffect(() => {
+    if (!pendingFocus) return;
+    const d: any = (backendDrones as any)[
+      makeBackendDroneKey(pendingFocus.deploymentId, pendingFocus.uasId)
+    ];
+    if (d && typeof d.last_lat === 'number' && typeof d.last_lon === 'number') {
+      flyToCoords(d.last_lon, d.last_lat, 15);
+      setSelectedDrone(d);
+      setSheetCollapsed(false);
+      if (pendingFocusTimer.current) {
+        clearTimeout(pendingFocusTimer.current);
+        pendingFocusTimer.current = null;
+      }
+      setPendingFocus(null);
+    }
+  }, [backendDrones, pendingFocus, flyToCoords]);
+
+  // Clear a pending-focus timer on unmount.
+  useEffect(() => () => {
+    if (pendingFocusTimer.current) clearTimeout(pendingFocusTimer.current);
+  }, []);
 
   // Polls recent org-wide detections + all org nodes every PASSIVE_POLL_MS.
   // Gated on userHasAnyNode === true at call time — checkUserNodes resolves
