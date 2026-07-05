@@ -22,7 +22,7 @@ import AddNodeScreen from '../screens/AddNodeScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import NotificationPreferencesScreen from '../screens/NotificationPreferencesScreen';
-import { setupNotificationListeners } from '../services/pushNotifications';
+import { setupNotificationListeners, consumeInitialNotificationResponse } from '../services/pushNotifications';
 import { useNotificationsStore } from '../store/notificationsStore';
 import { NavigationContainerRef } from '@react-navigation/native';
 
@@ -125,6 +125,7 @@ export default function AppNavigator() {
   const { token, isLoading, loadToken } = useAuthStore();
   const colors = useTheme();
   const navRef = React.useRef<NavigationContainerRef<any>>(null);
+  const [navReady, setNavReady] = useState(false);
   const incrementUnread = useNotificationsStore(s => s.incrementUnread);
 
   useEffect(() => { loadToken(); }, []);
@@ -141,6 +142,20 @@ export default function AppNavigator() {
     return () => { sub.remove(); };
   }, [token, incrementUnread]);
 
+  // Cold-start deep-link. When a notification tap launches the app from a
+  // killed state, the runtime response listener above never sees it (the OS
+  // delivered the tap before the JS runtime existed). getLastNotification-
+  // ResponseAsync replays that launch tap. Gated on navReady + token so the
+  // navigation tree — and the authed Main → LiveMap stack — is mounted before
+  // we navigate; otherwise the route params would be dropped. This is the
+  // nav-readiness queue: onReady flips navReady, and the authed stack only
+  // exists while token is set, so both conditions guarantee a valid target.
+  useEffect(() => {
+    if (!token || !navReady) return;
+    if (!navRef.current?.isReady?.()) return;
+    void consumeInitialNotificationResponse(navRef.current);
+  }, [token, navReady]);
+
   if (isLoading) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: 'center', alignItems: 'center' }}>
@@ -154,7 +169,7 @@ export default function AppNavigator() {
     : { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: colors.bg, card: colors.surface, border: colors.border, primary: colors.cyan, text: colors.text, notification: colors.red } };
 
   return (
-    <NavigationContainer ref={navRef} theme={navTheme}>
+    <NavigationContainer ref={navRef} theme={navTheme} onReady={() => setNavReady(true)}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {token ? (
           <>

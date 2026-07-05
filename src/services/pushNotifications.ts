@@ -334,6 +334,43 @@ export function deepLinkForNotification(navigation: any, data: any): void {
   }
 }
 
+// Guards against handling the same OS notification tap twice. A cold launch
+// delivers the tap via getLastNotificationResponseAsync() AND, on some OEMs,
+// re-delivers it to the runtime response listener once the JS runtime spins
+// up. Both funnel through deepLinkForNotification; without this the LiveMap
+// focus would fire twice. In-app notification-center taps carry no OS
+// identifier and are unaffected (they always handle).
+let lastHandledResponseId: string | null = null;
+
+function shouldHandleResponse(
+  response: Notifications.NotificationResponse | null | undefined,
+): boolean {
+  const id = response?.notification?.request?.identifier;
+  if (!id) return true;
+  if (id === lastHandledResponseId) return false;
+  lastHandledResponseId = id;
+  return true;
+}
+
+// Cold-start entry point. Call once the navigation tree is mounted and ready
+// (see AppNavigator's onReady gate). getLastNotificationResponseAsync returns
+// the notification tap that launched the app from a killed state (or null) —
+// the runtime response listener never sees it because the OS delivered the
+// tap before the JS runtime (and its listeners) existed. Routed through the
+// same deepLinkForNotification funnel as warm/background taps. Best-effort:
+// never throws into the caller.
+export async function consumeInitialNotificationResponse(navigation: any): Promise<void> {
+  try {
+    const response = await Notifications.getLastNotificationResponseAsync();
+    if (!response) return;
+    if (!shouldHandleResponse(response)) return;
+    const data = response?.notification?.request?.content?.data || {};
+    deepLinkForNotification(navigation, data);
+  } catch (err) {
+    console.warn('[push] consumeInitialNotificationResponse failed:', err);
+  }
+}
+
 export interface PushListeners {
   remove: () => void;
 }
@@ -355,6 +392,7 @@ export function setupNotificationListeners(
   });
   const subResponse = Notifications.addNotificationResponseReceivedListener(response => {
     try {
+      if (!shouldHandleResponse(response)) return;
       const data = response?.notification?.request?.content?.data || {};
       deepLinkForNotification(navigation, data);
     } catch (err) {
