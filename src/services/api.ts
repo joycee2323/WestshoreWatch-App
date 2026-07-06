@@ -227,6 +227,12 @@ export const api = {
   // No JS wrapper here — the native side talks to the backend directly.
   nodeDetections: (deviceId: string, drones: any[]) =>
     request('POST', `/nodes/${encodeURIComponent(deviceId)}/detections`, { drones }),
+  // Node-less detections (iOS relay path): a phone relaying a DroneScout-bridge
+  // drone has no Westshore node MAC, so it posts to the deployment directly.
+  // User-JWT auth; the backend validates deploymentId through the caller's scope
+  // and inserts with node_id = NULL. Body shape matches nodeDetections.
+  deploymentDetections: (deploymentId: string, drones: any[]) =>
+    request('POST', `/deployments/${encodeURIComponent(deploymentId)}/detections`, { drones }),
   getNodeLimit: () => request('GET', '/nodes/limit'),
   claimNode: (mac: string, name?: string) => {
     const body: any = { mac };
