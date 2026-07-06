@@ -152,7 +152,7 @@ const ODID_MSG_SYSTEM = 4;
 // Westshore Watch node identity advertiser company ID (handle 3 in
 // firmware/ble_relay.c, manufacturer-specific data [MAC(6)][api_key prefix]).
 // A node is recognized by the presence of this company ID in its advert, not
-// by MAC OUI — see isNodeIdentityAdvert. The relay/pack adverts carry only
+// by MAC OUI alone — see isWestshoreWatchNode. The relay/pack adverts carry only
 // ODID service data (0xFFFA) and the detection advert uses 0x08FF, so neither
 // can match this check.
 const WESTSHORE_COMPANY_ID = 0x08fe;
@@ -231,23 +231,31 @@ export function getDiscoveredNodes(): Map<string, DiscoveredNode> {
 
 let onNodeNearby: ((mac: string, rssi: number) => void) | null = null;
 
-// A Westshore node is recognized by its company-0x08FE identity advert (the
-// structural discovery signature the native scan filter already uses), not by
-// MAC OUI — so any OUI (e.g. 10:BD:A3) is recognized. manufacturerData is
-// base64 of [companyId LE][payload]; we only need the first two bytes. Returns
-// false for relay/pack frames (no manufacturer data) and detection frames
-// (company 0x08FF), so it cannot match a relay advert.
-function isNodeIdentityAdvert(manufacturerData: string | null): boolean {
-  if (!manufacturerData) return false;
-  try {
-    // atob for Hermes compatibility — mirrors odidParser's service-data decode.
-    const binary = atob(manufacturerData);
-    if (binary.length < 2) return false;
-    const companyId = binary.charCodeAt(0) | (binary.charCodeAt(1) << 8);
-    return companyId === WESTSHORE_COMPANY_ID;
-  } catch {
-    return false;
+// A Westshore node is recognized primarily by its company-0x08FE identity
+// advert (the structural discovery signature the native scan filter already
+// uses) — so any OUI (e.g. 10:BD:A3) is recognized. manufacturerData is base64
+// of [companyId LE][payload]; we only need the first two bytes. Returns false
+// for relay/pack frames (no manufacturer data) and detection frames (company
+// 0x08FF), so it cannot match a relay advert. Falls back to the legacy MAC-OUI
+// allowlist so pre-0x08FE fleet (98:A3:16:7D, 38:44:BE) still registers — this
+// file is shared with Android, where the OUI-only path is load-bearing (6b369a66).
+function isWestshoreWatchNode(mac: string, manufacturerData: string | null): boolean {
+  if (manufacturerData) {
+    try {
+      // atob for Hermes compatibility — mirrors odidParser's service-data decode.
+      const binary = atob(manufacturerData);
+      if (
+        binary.length >= 2 &&
+        (binary.charCodeAt(0) | (binary.charCodeAt(1) << 8)) === WESTSHORE_COMPANY_ID
+      ) {
+        return true;
+      }
+    } catch {
+      // fall through to OUI check
+    }
   }
+  const upper = mac.toUpperCase();
+  return upper.startsWith('98:A3:16:7D') || upper.startsWith('38:44:BE');
 }
 
 // The deployment this phone is relaying BLE detections to (iOS node-less path),
@@ -333,7 +341,7 @@ export async function startBleScanning(
     const mac = device.mac;
     const serviceDataMap = device.serviceData;
 
-    if (isNodeIdentityAdvert(device.manufacturerData)) {
+    if (isWestshoreWatchNode(mac, device.manufacturerData)) {
       const macUpper = mac.toUpperCase();
       discoveredNodes.set(macUpper, {
         mac: macUpper,

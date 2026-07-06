@@ -9,16 +9,15 @@ import KeepScreenOnToggle from '../components/KeepScreenOnToggle';
 import KeepScreenActiveModal from '../components/KeepScreenActiveModal';
 import DetectionLimitedBanner from '../components/DetectionLimitedBanner';
 import { useScanActiveWarning } from '../hooks/useScanActiveWarning';
-import { useDroneStore } from '../store/droneStore';
+import { useDroneStore, makeBackendDroneKey } from '../store/droneStore';
 import { useAuthStore } from '../store/authStore';
 import { createWebSocket, api, ReconnectingWebSocket, SubscribeMessage } from '../services/api';
 import { useTheme, getDroneColor } from '../theme';
 import { OP_STATUS_AIRBORNE } from '../services/odidParser';
-import { startBleScanning, stopBleScanning, getBridgeInRange } from '../services/bleScanner';
+import { startBleScanning, stopBleScanning } from '../services/bleScanner';
 import { fetchNodes as fetchNodeRegistry, getNodeByMac } from '../services/nodeRegistry';
 import * as Location from 'expo-location';
 import { useCaps } from '../lib/useCaps';
-import { useRelayTarget } from '../hooks/useRelayTarget';
 import { fmtAltitude, fmtSpeed } from '../utils/units';
 
 // Debounce window for nickname edits — avoids hammering the backend on every
@@ -80,10 +79,40 @@ export default function LiveMapScreen() {
   // selection logic inside refreshLiveMapState can pick up the latest
   // value without re-creating its useCallback closure every nav.
   const targetDeploymentIdRef = useRef<string | undefined>(undefined);
+  // One-shot focus request from a tapped detection notification.
+  // deepLinkForNotification forwards `focusNonce` plus optional targetUasId /
+  // targetLat / targetLon alongside targetDeploymentId. We stash the latest
+  // request in a ref and bump `focusTick` to drive the focus effect further
+  // down. uas_id/coords are optional (older push payloads omit them) — the
+  // focus logic degrades to newest-in-deployment centering when absent.
+  const focusRequestRef = useRef<{
+    nonce: number;
+    deploymentId?: string;
+    uasId?: string;
+    lat?: number;
+    lon?: number;
+  } | null>(null);
+  const lastFocusNonceRef = useRef<number>(0);
+  const [focusTick, setFocusTick] = useState(0);
   useEffect(() => {
-    const t = (route.params as any)?.targetDeploymentId;
+    const p = route.params as any;
+    const t = p?.targetDeploymentId;
     if (typeof t === 'string' && t.length > 0) {
       targetDeploymentIdRef.current = t;
+    }
+    const nonce = typeof p?.focusNonce === 'number' ? p.focusNonce : undefined;
+    if (nonce && nonce !== lastFocusNonceRef.current) {
+      focusRequestRef.current = {
+        nonce,
+        deploymentId: typeof t === 'string' && t.length > 0 ? t : undefined,
+        uasId: typeof p?.targetUasId === 'string' ? p.targetUasId : undefined,
+        lat: typeof p?.targetLat === 'number' ? p.targetLat : undefined,
+        lon: typeof p?.targetLon === 'number' ? p.targetLon : undefined,
+      };
+      // Suppress the one-time default centering below — a notification focus
+      // owns the camera from here on.
+      hasInitiallyCenteredRef.current = true;
+      setFocusTick(x => x + 1);
     }
   }, [route.params]);
 
@@ -166,11 +195,6 @@ export default function LiveMapScreen() {
   const activeDeploymentsRef = useRef<any[]>([]);
   useEffect(() => { activeDeploymentsRef.current = activeDeployments; }, [activeDeployments]);
 
-  // Drive the iOS node-less relay target (which deployment this phone uploads
-  // BLE detections to): auto-pick the sole operable active deployment, prompt on
-  // ambiguity, clear when none. Distinct from the view scope above.
-  useRelayTarget(activeDeployments, orgId);
-
   // Which deployment the map is currently SCOPED to (display + node fetch +
   // WS subscription + drone render all derive from this). 'ALL' = every
   // active deployment the viewer can see; a deployment id = just that one;
@@ -205,19 +229,6 @@ export default function LiveMapScreen() {
       subResumed.remove();
     };
   }, []);
-
-  // Bridge-proximity badge: a DroneScout/BlueMark bridge is broadcasting nearby
-  // (protocol-signature proximity, NOT node identity — see bleScanner). bleScanner
-  // emits on in/out-of-range transitions; we mirror it into local state for the
-  // "NODE IN RANGE" badge. Distinct from node-online / the node icon.
-  const [bridgeInRange, setBridgeInRange] = useState(getBridgeInRange());
-  useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(
-      'BridgeInRangeChanged',
-      (p: { inRange?: boolean }) => setBridgeInRange(!!p?.inRange),
-    );
-    return () => sub.remove();
-  }, []);
   const [nodes, setNodes] = useState<any[]>([]);
   const nodesRef = useRef<any[]>([]);
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
@@ -251,6 +262,11 @@ export default function LiveMapScreen() {
 
   const [selectedDrone, setSelectedDrone] = useState<any>(null);
   const [sheetCollapsed, setSheetCollapsed] = useState(false);
+  // A notification-focus target whose drone isn't in the store yet (live-only,
+  // not arrived via WS). The store watcher below snaps + selects it when it
+  // lands; a bounded timer clears it so a late arrival never yanks the camera.
+  const [pendingFocus, setPendingFocus] = useState<{ deploymentId: string; uasId: string } | null>(null);
+  const pendingFocusTimer = useRef<any>(null);
   // Set by the drone marker's onPress so a tap that hits a feature doesn't
   // also fire the MapView's onPress and immediately clear the selection.
   const featureTappedRef = useRef(false);
@@ -319,7 +335,7 @@ export default function LiveMapScreen() {
   // SINGLE source of truth for what's drawn AND counted: every node with
   // coordinates. The header NODES count and the rendered markers both derive
   // from this, so the count always equals the number of pins drawn. Online/
-  // offline is shown by marker color, never by hiding a marker.
+  // offline is shown by marker border color, never by hiding a marker.
   const renderableNodes = nodesToRender.filter((n: any) => n.last_lat != null && n.last_lon != null);
 
   // Header "DRONES" count dedupes by uas_id. In multi-active mode, the
@@ -347,6 +363,18 @@ export default function LiveMapScreen() {
   // per-node timers, last-seen state, or 404/skip tracking — see
   // android/app/src/main/java/com/westshoredrone/watch/NodeHeartbeatUploader.kt.
 
+  // Refetch the node list for every currently-active deployment. Used by the
+  // initial load, focus/foreground resume, and unknown-node WS messages.
+  // Accepts an optional id list for the first call from enterActiveMode
+  // (before currentActiveIdsRef has flushed); otherwise reads the ref.
+  //
+  // Partial-success semantics: one deployment's fetch failing (transient
+  // 5xx, partner grant revoked mid-session) must not blank out other
+  // deployments' nodes from the map. allSettled + filter-fulfilled gives
+  // us that; rejected branches log so a persistent failure stays visible
+  // during development. The detections-hydrate loop in enterActiveMode
+  // has the same partial-failure exposure but is scoped to a separate
+  // followup.
   // Resolve the deployment id set the map is currently scoped to, from the
   // selection + active set (both read off refs so callers in stable closures
   // stay correct). 'ALL' → every active id; a single id → just that one (with
@@ -365,8 +393,6 @@ export default function LiveMapScreen() {
   // /deployments/:id/nodes; multiple hits /deployments/nodes?deployment_ids=
   // (both grant-scoped server-side). Replaces the old all-actives client
   // merge — the rendered node set now matches exactly what's selected.
-  // Result is coord-normalized (numOrNull at ingest) so iOS strict Codable
-  // decoding doesn't reject string lat/lon from the Postgres `pg` driver.
   const refetchNodes = useCallback(async (ids?: string[]) => {
     const targetIds = ids ?? computeVisibleIds();
     if (targetIds.length === 0) { setNodes([]); return; }
@@ -532,14 +558,6 @@ export default function LiveMapScreen() {
   //      deployed nodes)
   //   3. Cleveland-area fallback (deployment record has no center field;
   //      Westshore Drone Services operates out of NE Ohio)
-  //
-  // Coordinates pulled from `nodes`/`selectedDrone` here are already
-  // numOrNull-normalized at ingest (refetchNodes + WS handlers), so the
-  // truthy && checks are safe against the stringified Postgres NUMERIC
-  // values that used to silently pass through and crash the iOS Codable
-  // decoder — that bug centered the map on Mapbox's world default
-  // (~lat 0, lng 10) and was the root cause of "the map opens to Germany"
-  // on iOS even when the Sentinel was online.
   const hasInitiallyCenteredRef = useRef(false);
   useEffect(() => {
     if (hasInitiallyCenteredRef.current) return;
@@ -547,11 +565,11 @@ export default function LiveMapScreen() {
 
     let center: [number, number] | null = null;
 
-    if (typeof selectedDrone?.last_lat === 'number' && typeof selectedDrone?.last_lon === 'number') {
+    if (selectedDrone?.last_lat && selectedDrone?.last_lon) {
       center = [selectedDrone.last_lon, selectedDrone.last_lat];
     } else {
       const onlineNode = nodes.find(n =>
-        n.status === 'online' && typeof n.last_lat === 'number' && typeof n.last_lon === 'number');
+        n.status === 'online' && n.last_lat && n.last_lon);
       if (onlineNode) {
         center = [onlineNode.last_lon, onlineNode.last_lat];
       } else {
@@ -671,17 +689,30 @@ export default function LiveMapScreen() {
   // currently-active deployments. Idempotent on same-set (no resubscribe,
   // no store thrash, no node refetch). Caller (refreshLiveMapState) has
   // already filtered `actives` to deployments with status === 'active'.
+  //
+  //   actives.length === 1 → single active mode (typical solo Sentinel
+  //                          or single event deployment)
+  //   actives.length >= 2  → multi-active mode (two or more deployments
+  //                          running concurrently — the customer-B bug)
+  //
+  // The "primary" deployment selected here drives UI display only
+  // (banner name, node list); the WS subscribes to ALL ids in the set.
   const enterActiveMode = useCallback(async (actives: any[]) => {
-    if (actives.length === 0) return;
+    if (actives.length === 0) return; // caller's responsibility but defensive
     const prevIds = currentActiveIdsRef.current;
     const nextIds = actives.map(d => d.id);
 
+    // Set difference: which deployments are no longer in the active set?
+    // Drop their drones from the store. Important: we compare by *set*,
+    // not by ordered list, so a reorder of the same set is a no-op.
     const prevSet = new Set(prevIds);
     const nextSet = new Set(nextIds);
     const removed = prevIds.filter(id => !nextSet.has(id));
     const added = nextIds.filter(id => !prevSet.has(id));
     const sameSet = removed.length === 0 && added.length === 0;
 
+    // Drop drones for every deployment NOT in the new active set (departed
+    // deployments + any "leaked" passive-mode SUBSCRIBE_ORG entries).
     const allKnownDeploymentIds = new Set<string>();
     for (const k of Object.keys(useDroneStore.getState().backendDrones)) {
       const idx = k.indexOf(':');
@@ -691,17 +722,28 @@ export default function LiveMapScreen() {
       if (!nextSet.has(id)) clearBackendDronesForDeployment(id);
     }
 
+    // Publish the active set (mode truth) + the full objects for the
+    // selector. Set the refs synchronously so applySelection below sees the
+    // new set before the ref-sync useEffects flush.
     setActiveDeployments(actives);
     activeDeploymentsRef.current = actives;
     setCurrentActiveIds(nextIds);
     currentActiveIdsRef.current = nextIds;
 
+    // Drop passive-mode poll + state. WS stays connected across active↔
+    // passive transitions; only the subscription shape changes.
     if (passivePollTimer.current) {
       clearInterval(passivePollTimer.current);
       passivePollTimer.current = null;
     }
     setPassiveNodes([]);
 
+    // Decide the scope selection, in priority order:
+    //   1. a deep-linked target that's currently active (notification UX —
+    //      matches the prior "primary = target" precedence),
+    //   2. preserve the user's current selection if still valid,
+    //   3. the sole deployment when only one is active,
+    //   4. "All active" for concurrent deployments.
     const targetId = targetDeploymentIdRef.current;
     const curSel = selectedDeploymentIdRef.current;
     let nextSel: string | 'ALL';
@@ -716,49 +758,25 @@ export default function LiveMapScreen() {
     }
 
     if (sameSet && curSel === nextSel) {
+      // Nothing changed (set + selection identical) — refresh detections/
+      // nodes via refreshLiveMapState only, not here.
       return;
     }
 
+    // applySelection handles the WS subscribe, drone eviction, detection +
+    // node hydrate for the chosen scope.
     await applySelection(nextSel);
 
-    if (targetId && nextSet.has(targetId) && cameraRef.current) {
-      const all = Object.values(useDroneStore.getState().backendDrones) as any[];
-      const fromTarget = all
-        .filter((d: any) =>
-          d.deployment_id === targetId
-          && typeof d.last_lat === 'number'
-          && typeof d.last_lon === 'number')
-        .sort((a: any, b: any) =>
-          new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime());
-      const drone = fromTarget[0];
-      if (drone) {
-        try {
-          cameraRef.current.setCamera({
-            centerCoordinate: [drone.last_lon, drone.last_lat],
-            zoomLevel: 14,
-            animationDuration: 800,
-          });
-        } catch (err) {
-          console.warn('[livemap] target camera setCamera failed:', err);
-        }
-      } else {
-        const node = nodesRef.current.find((n: any) =>
-          typeof n.last_lat === 'number' && typeof n.last_lon === 'number');
-        if (node) {
-          try {
-            cameraRef.current.setCamera({
-              centerCoordinate: [node.last_lon, node.last_lat],
-              zoomLevel: 14,
-              animationDuration: 800,
-            });
-          } catch (err) {
-            console.warn('[livemap] target camera setCamera failed:', err);
-          }
-        }
-      }
-    }
+    // Camera focus for a deep-linked notification is handled centrally by
+    // focusDrone (driven by the route-param focus request), which snaps to the
+    // specific drone once this scope has hydrated. enterActiveMode only sets
+    // the deployment scope now; it no longer moves the camera.
   }, [applySelection, clearBackendDronesForDeployment]);
 
+  // Side effect: switch into passive mode. WS stays connected (under a
+  // SUBSCRIBE_ORG shape) so org-wide detections still surface in real
+  // time; the 30s passive poll is retained as a backup for the windows
+  // where the WS is briefly down between reconnects.
   const enterPassiveMode = useCallback(() => {
     const prevIds = currentActiveIdsRef.current;
 
@@ -771,15 +789,38 @@ export default function LiveMapScreen() {
     selectedDeploymentIdRef.current = null;
     setNodes([]);
 
+    // Clear every previously-active deployment's drones from the store.
+    // Without this, the screen would carry the last frame of the
+    // outgoing deployments after the user moved off them.
     for (const id of prevIds) {
       clearBackendDronesForDeployment(id);
     }
 
+    // Org-wide WS subscription. Connects if not already connected.
+    // resubscribe is a no-op if we were already on SUBSCRIBE_ORG.
     setWsSubscription({ type: 'SUBSCRIBE_ORG' });
 
+    // Backup poll. Largely redundant once WS is established, but kept
+    // for the brief windows where the WS is between reconnects (Render
+    // LB drops idle connections; backoff up to 30s on the client). Both
+    // the WS and the poll feed updateBackendDrone, so a detection that
+    // arrives twice is just an idempotent re-merge of the same row.
     startPassivePollingRef.current?.();
   }, [clearBackendDronesForDeployment, setWsSubscription]);
 
+  // The single refresh entry point used by mount, focus, foreground,
+  // and WS-reconnect. Decides mode (active vs passive), drives the
+  // mode-change side effects, and refetches what was requested.
+  //
+  // reevaluateMode: re-runs the active/passive decision against a fresh
+  //   deployments fetch. Needed when the user backgrounds the app while
+  //   a deployment is `scheduled` and foregrounds it after the activation
+  //   cron fires — without this, the "NO ACTIVE DEPLOYMENT" banner sticks
+  //   until the next remount.
+  //
+  // When reevaluateMode triggers a mode switch, enterActiveMode /
+  // enterPassiveMode already hydrate everything; the `detections`/`nodes`
+  // flags are only consulted on the no-mode-change path.
   const refreshLiveMapState = useCallback(async (opts: {
     detections?: boolean;
     nodes?: boolean;
@@ -801,12 +842,23 @@ export default function LiveMapScreen() {
           nextIds.some((id: string) => !prevSet.has(id)) ||
           prevIds.some((id: string) => !nextSet.has(id));
 
+        // Targeted-but-not-active warning (preserved from Commit 2
+        // behavior): if a notification deep-linked us with a target that
+        // is no longer active, log so we can spot it. enterActiveMode's
+        // primary selection still falls through to actives[0] in that
+        // case via the ref read.
         const targetId = targetDeploymentIdRef.current;
         if (targetId && !nextSet.has(targetId)) {
           console.warn(`[livemap] targetDeploymentId=${targetId} not in active set (${nextIds.length} active); using primary fallback`);
         }
 
         if (actives.length === 0) {
+          // Transition into passive mode. Fire when (a) we were
+          // previously active (real mode change, clear stores) OR
+          // (b) we haven't connected the WS yet (first cold-start
+          // with zero active deployments — without this the WS would
+          // never come up under SUBSCRIBE_ORG and org-wide detections
+          // would only surface via the 30s poll).
           if (prevIds.length > 0 || !wsRef.current) {
             enterPassiveMode();
             return;
@@ -817,6 +869,10 @@ export default function LiveMapScreen() {
           return;
         }
         if (actives.length > 0 && !setChanged) {
+          // Same active set, no mode switch. Refresh the deployment objects
+          // (names/modes may have changed server-side) and the selected
+          // single deployment's stored copy; the scope selection is left
+          // intact (set is unchanged, so the selection is still valid).
           setActiveDeployments(actives);
           activeDeploymentsRef.current = actives;
           const sel = selectedDeploymentIdRef.current;
@@ -828,14 +884,19 @@ export default function LiveMapScreen() {
             }
           }
         }
+        // else: was passive, still passive — fall through to refresh.
       } catch (err) {
         console.warn('[livemap] deployments refetch failed:', err);
+        // Fall through using current mode.
       }
     }
 
     const curIds = currentActiveIdsRef.current;
     if (curIds.length > 0) {
       if (detections) {
+        // Refresh detections for every subscribed deployment. Loop is
+        // fine for typical counts; a bulk endpoint is the next move
+        // if multi-deployment customers grow.
         for (const id of curIds) {
           try {
             const dets = await api.getDetections(id);
@@ -849,9 +910,16 @@ export default function LiveMapScreen() {
         await hydrateLentExternal();
       }
       if (nodes) {
+        // Refetch nodes for every currently-active deployment. ref is
+        // current at this point (no in-flight setCurrentActiveIds from
+        // this code path), so the arg-less call is correct.
         await refetchNodes();
       }
     } else if (detections || nodes) {
+      // Passive mode: re-arm the poll. WS is also live under
+      // SUBSCRIBE_ORG so most of this is redundant, but the poll
+      // guarantees an immediate refresh without waiting on WS message
+      // arrival.
       startPassivePollingRef.current?.();
     }
   }, [enterActiveMode, enterPassiveMode, updateBackendDrone, refetchNodes, hydrateLentExternal]);
@@ -860,17 +928,180 @@ export default function LiveMapScreen() {
     await refreshLiveMapState({ detections: true, nodes: true, reevaluateMode: true });
   }, [refreshLiveMapState]);
 
+  // ── Notification focus ────────────────────────────────────────────────
+  // Snap the map to the drone a detection notification references. Single
+  // funnel for all three tap entry points (cold start, background/warm, in-app
+  // center) — they each land here via route params (see the intake effect near
+  // the top + deepLinkForNotification). Sequencing: seed the camera on the
+  // payload coords immediately (never fly to empty space), switch + hydrate the
+  // deployment scope FIRST, then snap to the live marker and select it.
+  const FOCUS_PENDING_TIMEOUT_MS = 4000;
+
+  const flyToCoords = useCallback((lon: number, lat: number, zoom: number) => {
+    if (!cameraRef.current) return;
+    try {
+      cameraRef.current.setCamera({
+        centerCoordinate: [lon, lat],
+        zoomLevel: zoom,
+        animationDuration: 800,
+      });
+    } catch (err) {
+      console.warn('[livemap] focus setCamera failed:', err);
+    }
+  }, []);
+
+  // Snap to + select the drone keyed by (deploymentId, uasId) if it's in the
+  // store with valid coords. Returns true when it found and focused it.
+  const focusByKey = useCallback((deploymentId: string, uasId: string): boolean => {
+    const d: any = (useDroneStore.getState().backendDrones as any)[
+      makeBackendDroneKey(deploymentId, uasId)
+    ];
+    if (d && typeof d.last_lat === 'number' && typeof d.last_lon === 'number') {
+      flyToCoords(d.last_lon, d.last_lat, 15);
+      setSelectedDrone(d);
+      setSheetCollapsed(false);
+      return true;
+    }
+    return false;
+  }, [flyToCoords]);
+
+  const focusDrone = useCallback(async (req: {
+    deploymentId?: string;
+    uasId?: string;
+    lat?: number;
+    lon?: number;
+  }) => {
+    const { deploymentId, uasId, lat, lon } = req;
+
+    // 1. Seed the camera immediately from the payload coords so we land in the
+    //    right place even before the deployment's live data hydrates — and even
+    //    if the drone has since gone stale/offline and never re-arrives.
+    if (typeof lat === 'number' && typeof lon === 'number') {
+      flyToCoords(lon, lat, 15);
+    }
+
+    if (!deploymentId) return;
+
+    // 2. Make the target deployment the active/selected scope so its drones
+    //    hydrate into the store and render. targetDeploymentIdRef also biases
+    //    enterActiveMode's primary selection if a reevaluate runs concurrently.
+    targetDeploymentIdRef.current = deploymentId;
+    try {
+      if (currentActiveIdsRef.current.includes(deploymentId)) {
+        if (selectedDeploymentIdRef.current !== deploymentId) {
+          await applySelection(deploymentId);
+        }
+      } else {
+        // Not in the current active set (we may be passive, or the set is stale
+        // after a background). Re-evaluate against a fresh deployments fetch; if
+        // the target is active this enters active mode and selects it. If it has
+        // ended, we stay passive and the drone may still be in recent detections.
+        await refreshRef.current?.({ detections: true, nodes: true, reevaluateMode: true });
+      }
+    } catch (err) {
+      console.warn('[livemap] focus scope switch failed:', err);
+    }
+
+    // 3. Snap to the specific drone once its scope has hydrated.
+    if (uasId) {
+      if (focusByKey(deploymentId, uasId)) return;
+      // Not in the store yet (live-only, hasn't arrived via WS). Arm a bounded
+      // pending focus — the store watcher below snaps + selects when it lands.
+      // On expiry we've already moved to the seed coords, so we just stop
+      // waiting (no late camera jump).
+      if (pendingFocusTimer.current) clearTimeout(pendingFocusTimer.current);
+      setPendingFocus({ deploymentId, uasId });
+      pendingFocusTimer.current = setTimeout(() => {
+        pendingFocusTimer.current = null;
+        setPendingFocus(null);
+      }, FOCUS_PENDING_TIMEOUT_MS);
+      return;
+    }
+
+    // 4. Deployment-only payload (older backend, no uas_id): center on the
+    //    newest drone in the deployment, else a node — mirroring the prior
+    //    deep-link nudge. Skip the node fallback if we already seeded from coords.
+    const all = Object.values(useDroneStore.getState().backendDrones) as any[];
+    const newest = all
+      .filter((d: any) =>
+        d.deployment_id === deploymentId
+        && typeof d.last_lat === 'number'
+        && typeof d.last_lon === 'number')
+      .sort((a: any, b: any) =>
+        new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime())[0];
+    if (newest) {
+      flyToCoords(newest.last_lon, newest.last_lat, 14);
+      return;
+    }
+    if (typeof lat === 'number' && typeof lon === 'number') return; // already seeded
+    const node = nodesRef.current.find((n: any) =>
+      typeof n.last_lat === 'number' && typeof n.last_lon === 'number');
+    if (node) flyToCoords(node.last_lon, node.last_lat, 14);
+  }, [applySelection, flyToCoords, focusByKey]);
+
+  // Drive focusDrone from the one-shot request stashed by the route-param
+  // intake effect. The nonce guard fires it exactly once per tap even if
+  // focusDrone's identity churns.
+  useEffect(() => {
+    if (focusTick === 0) return;
+    const req = focusRequestRef.current;
+    if (!req || req.nonce === lastFocusNonceRef.current) return;
+    lastFocusNonceRef.current = req.nonce;
+    void focusDrone({
+      deploymentId: req.deploymentId,
+      uasId: req.uasId,
+      lat: req.lat,
+      lon: req.lon,
+    });
+  }, [focusTick, focusDrone]);
+
+  // Pending-focus watcher: when the awaited drone finally lands in the store
+  // (via WS/hydrate), snap + select it. backendDrones is a subscribed store
+  // slice, so this re-runs on every detection update until the pending focus
+  // resolves or its timeout clears it.
+  useEffect(() => {
+    if (!pendingFocus) return;
+    const d: any = (backendDrones as any)[
+      makeBackendDroneKey(pendingFocus.deploymentId, pendingFocus.uasId)
+    ];
+    if (d && typeof d.last_lat === 'number' && typeof d.last_lon === 'number') {
+      flyToCoords(d.last_lon, d.last_lat, 15);
+      setSelectedDrone(d);
+      setSheetCollapsed(false);
+      if (pendingFocusTimer.current) {
+        clearTimeout(pendingFocusTimer.current);
+        pendingFocusTimer.current = null;
+      }
+      setPendingFocus(null);
+    }
+  }, [backendDrones, pendingFocus, flyToCoords]);
+
+  // Clear a pending-focus timer on unmount.
+  useEffect(() => () => {
+    if (pendingFocusTimer.current) clearTimeout(pendingFocusTimer.current);
+  }, []);
+
   // Polls recent org-wide detections + all org nodes every PASSIVE_POLL_MS.
-  // Same coord-normalization applies to the passive node list — nodes
-  // come from /api/nodes which returns the same Postgres NUMERIC strings.
+  // Gated on userHasAnyNode === true at call time — checkUserNodes resolves
+  // before this runs (both kicked off from the mount effect), so a new
+  // account with no nodes never hits the network here.
   const startPassivePolling = useCallback(() => {
     const poll = async () => {
+      // Skip while the user has no nodes (incl. while the initial check is
+      // still in flight, userHasAnyNodeRef === null). Re-checked each tick so
+      // adding a node later starts populating the view without a remount.
       if (userHasAnyNodeRef.current !== true) return;
       try {
         const [dets, nodeList] = await Promise.all([
           api.getRecentDetections(PASSIVE_RECENCY_MIN),
           api.getNodes(),
         ]);
+        // Drones merge into the shared backendDrones store via
+        // updateBackendDrone — same path as WS-delivered detections.
+        // The 5-min render filter in `droneList` enforces the passive-
+        // mode visibility window; aged-out entries linger in the store
+        // until the next mode change (consistent with session-scoped
+        // eviction from Commit 3).
         if (Array.isArray(dets)) {
           for (const d of dets) updateBackendDrone(d);
         }
@@ -897,6 +1128,7 @@ export default function LiveMapScreen() {
         }));
       }
       if (msg.type === 'NICKNAME_UPDATE') {
+        // Backend broadcasts to all clients; ignore other orgs.
         if (orgId && msg.org_id && msg.org_id !== orgId) return;
         updateNickname(msg.uas_id, msg.nickname || null);
       }
@@ -907,6 +1139,10 @@ export default function LiveMapScreen() {
             n.id === msg.node_id ? { ...n, status: 'offline' } : n
           ));
         } else {
+          // Unknown node — partner grant just expanded, or a node was
+          // added to one of our active deployments while we were on a
+          // stale snapshot. Symmetric with the NODE_ONLINE fallback
+          // below; refetch is debounced.
           scheduleRefetchNodes();
         }
       }
@@ -919,23 +1155,31 @@ export default function LiveMapScreen() {
               : n
           ));
         } else {
+          // Unknown node — WS payload has only node_id, not a full record.
+          // Refetch to hydrate (debounced to coalesce bursts).
           scheduleRefetchNodes();
         }
       }
       if (msg.type === 'NODE_POSITION') {
-        // numOrNull guards against the WS broadcasting stringified coords;
-        // iOS Mapbox's Codable decoder rejects strings outright.
-        const lat = numOrNull(msg.lat);
-        const lon = numOrNull(msg.lon);
+        // Live position from a moving node's heartbeat (or detection). Update
+        // the marker coords in whichever list holds the node (active or
+        // passive) so it tracks without a full refetch. Returning the same
+        // array reference when the node isn't present makes React skip the
+        // re-render — NODE_POSITION can arrive frequently for a mobile node.
         const move = (prev: any[]) => prev.some((n: any) => n.id === msg.node_id)
           ? prev.map((n: any) => n.id === msg.node_id
-              ? { ...n, last_lat: lat, last_lon: lon }
+              ? { ...n, last_lat: numOrNull(msg.lat), last_lon: numOrNull(msg.lon) }
               : n)
           : prev;
         setNodes(move);
         setPassiveNodes(move);
       }
     }, {
+      // After an unexpected close + reconnect, the WS resumes live updates
+      // but the client's in-memory state is stale for whatever window the
+      // connection was down. Routed through refreshRef so a deployment
+      // that activated or ended while the WS was down also triggers the
+      // active/passive mode switch (not just a detections/nodes refetch).
       onReconnect: () => {
         console.info('[ws] reconnect — re-evaluating mode + refetching state');
         void refreshRef.current?.({ detections: true, nodes: true, reevaluateMode: true });
@@ -944,12 +1188,20 @@ export default function LiveMapScreen() {
     wsRef.current = ws;
   }, [scheduleRefetchNodes, updateBackendDrone, orgId, updateNickname]);
 
+  // Forward-decl ref sync. Runs during render, after all useCallback
+  // consts above are bound, so by the time any effect/timer/event
+  // handler fires the refs are non-null. Cheap on every render — just
+  // three mutable-ref writes.
   connectWebSocketRef.current = connectWebSocket;
   startPassivePollingRef.current = startPassivePolling;
   refreshRef.current = refreshLiveMapState;
 
   const s = styles(colors);
 
+  // See `permissionResolved` declaration for the race-condition rationale.
+  // Show a spinner until the OS permission prompt has been answered;
+  // mounting MapView before then is what causes the fresh-install marker
+  // bug.
   if (!permissionResolved) {
     return (
       <View style={s.loadingContainer}>
@@ -973,7 +1225,13 @@ export default function LiveMapScreen() {
       >
         <MapboxGL.Camera ref={cameraRef} />
 
-        {/* Facility geofences (own-org boundaries). */}
+        {/* Facility geofences (own-org boundaries). Drawn beneath nodes/
+            drones. Each row carries a materialized GeoJSON Polygon Feature;
+            we render geometry.geometry.coordinates[0] as an opaque ring —
+            no circle/center/radius assumptions (prod boundaries are
+            arbitrary polygons). Mirrors the dashboard: fill 0.08/0.04 by
+            push_enabled, solid stroke for push-alerting boundaries, dashed
+            for context-only ones. */}
         {geofences.length > 0 && (
           <MapboxGL.ShapeSource
             id="geofence-source"
@@ -1007,58 +1265,33 @@ export default function LiveMapScreen() {
             />
           </MapboxGL.ShapeSource>
         )}
+        {/* TODO(followup): restore user-location marker. Removed in versionCode 9
+            due to Mapbox 10.3.1 + RN 0.79 + old-arch incompatibility. Three
+            patches in patches/@rnmapbox+maps+10.3.1.patch address part of the
+            chain but JS->native start() dispatch on old arch is broken at the
+            codegen layer. Options: (a) migrate to newArchEnabled=true in a
+            future SDK bump, (b) custom marker driven by expo-location, (c) wait
+            for Mapbox upstream fix. Initial camera centering is now handled
+            by the useEffect above this return statement; node positioning is
+            unaffected (NodeHeartbeatUploader.kt uses android.location.LocationManager
+            directly, independent of Mapbox). */}
 
-        {/* Node markers via ShapeSource + CircleLayer. CircleLayer rather
-            than SymbolLayer because Mapbox's glyph server only has standard
-            map fonts loaded — emoji codepoints (📡 = U+1F4E1) aren't in any
-            of them, so textField with an emoji renders blank. CircleLayer
-            has no font dependency. Two stacked layers (outer ring + inner
-            dot) give the classic pin look. Online nodes = green, offline =
-            muted gray. */}
-        <MapboxGL.ShapeSource
-          id="node-markers"
-          shape={{
-            type: 'FeatureCollection',
-            features: renderableNodes.map((node: any) => ({
-              type: 'Feature' as const,
-              id: `node-${node.id}`,
-              geometry: {
-                type: 'Point' as const,
-                coordinates: [node.last_lon, node.last_lat],
-              },
-              properties: {
-                online: node.status === 'online',
-              },
-            })),
-          }}
-        >
-<MapboxGL.CircleLayer
-            id="node-ring"
-            style={{
-              circleRadius: 4,
-              circleColor: 'rgba(0,0,0,0)',
-              circleStrokeWidth: 0.75,
-              circleStrokeColor: [
-                'case',
-                ['get', 'online'],
-                colors.green,
-                colors.textMuted,
-              ],
-            }}
-          />
-          <MapboxGL.CircleLayer
-            id="node-dot"
-            style={{
-              circleRadius: 1.75,
-              circleColor: [
-                'case',
-                ['get', 'online'],
-                colors.green,
-                colors.textMuted,
-              ],
-            }}
-          />
-        </MapboxGL.ShapeSource>
+        {/* Node markers — renderableNodes is the same set the NODES count
+            uses, so count == pins drawn. Online/offline shown by border. */}
+        {renderableNodes.map(node => {
+          const online = node.status === 'online';
+          return (
+            <MapboxGL.PointAnnotation
+              key={`node-${node.id}`}
+              id={`node-${node.id}`}
+              coordinate={[node.last_lon, node.last_lat]}
+            >
+              <View style={[s.nodeMarker, { borderColor: online ? colors.green : colors.textMuted }]}>
+                <Text style={{ fontSize: 8 }}>📡</Text>
+              </View>
+            </MapboxGL.PointAnnotation>
+          );
+        })}
 
         {/* Drone flight path polyline — only the selected drone's path renders. */}
         {droneList.map((drone: any) => {
@@ -1216,6 +1449,10 @@ export default function LiveMapScreen() {
                 : (activeDeployment?.name ?? '')}
             </Text>
           )}
+          {/* Deployment scope selector — only when 2+ deployments are active
+              (the concurrent-deployment case). The option list is whatever
+              the viewer is allowed to see, so a grantee is locked to their
+              granted deployment(s). */}
           {!isPassive && activeDeployments.length >= 2 && (
             <View style={s.selectorRow}>
               {[{ id: 'ALL', name: 'ALL' }, ...activeDeployments].map((opt: any) => {
@@ -1241,7 +1478,7 @@ export default function LiveMapScreen() {
           {isPassive && (
             <Text style={s.passiveBadge}>◌ PASSIVE</Text>
           )}
-          {(nearbyNodeCount > 0 || bridgeInRange) && (
+          {nearbyNodeCount > 0 && (
             <Text style={s.nodeNearby}>📡 NODE IN RANGE</Text>
           )}
         </View>
@@ -1275,7 +1512,8 @@ export default function LiveMapScreen() {
         </TouchableOpacity>
       )}
 
-      {/* Passive mode banner */}
+      {/* Passive mode banner — shown when no deployment is active but the
+          user has nodes. Mutually exclusive with the no-nodes banner. */}
       {isPassive && userHasAnyNode === true && (
         <TouchableOpacity
           style={s.passiveBanner}
@@ -1315,11 +1553,13 @@ export default function LiveMapScreen() {
 
       {/* Selected drone sheet */}
       {selectedDrone && (() => {
+        // Live lookup so the panel reflects real-time updates, not a stale snapshot
         const selId = selectedDrone.uasId || selectedDrone.uas_id || selectedDrone.mac;
         const liveDrone = droneList.find((d: any) =>
           (d.uasId || d.uas_id || d.mac) === selId
         ) ?? selectedDrone;
 
+        // Normalize field names: BLE drones use camelCase, backend uses snake_case
         const dLat = liveDrone.lat ?? liveDrone.last_lat;
         const dLon = liveDrone.lon ?? liveDrone.last_lon;
         const dAlt = liveDrone.altGeo ?? liveDrone.last_altitude;
@@ -1327,6 +1567,15 @@ export default function LiveMapScreen() {
         const dOpLat = liveDrone.opLat ?? liveDrone.op_lat;
         const dOpLon = liveDrone.opLon ?? liveDrone.op_lon;
 
+        // CTA-2063-A model decode. Backend resolves manufacturer + model
+        // from the uas_id prefix at ingest and writes both onto the
+        // drone_detections row; the WS DRONE_UPDATE payload + the initial
+        // /api/detections hydrate both carry these fields. BLE-mode drones
+        // (guest flow without backend) won't have them — fall through to
+        // 'Unknown'. Display per spec:
+        //   manufacturer + model present → "DJI Air 3"
+        //   manufacturer only            → "DJI"
+        //   neither                      → "Unknown"
         const manufacturer = liveDrone.manufacturer;
         const model = liveDrone.model;
         const modelDisplay = manufacturer && model
@@ -1335,6 +1584,7 @@ export default function LiveMapScreen() {
             ? manufacturer
             : 'Unknown';
 
+        // Resolve source node name from the registry by BLE MAC.
         const srcMac = liveDrone.sourceMac;
         const sourceNode = srcMac ? getNodeByMac(srcMac) : null;
         const nodeName = sourceNode?.name || liveDrone.node_name || '—';
@@ -1344,6 +1594,10 @@ export default function LiveMapScreen() {
 
         return (
           <View style={[s.detailSheet, sheetCollapsed && s.detailSheetCollapsed]}>
+            {/* Header row: title flexes; V + X sit in normal flow on the
+                same line. Their hit regions can no longer reach down into
+                the nickname TextInput below, which was causing taps on X
+                to open the keyboard instead of dismissing the sheet. */}
             <View style={s.sheetHeaderRow}>
               {nickname ? (
                 <View style={{ flex: 1, marginRight: 12 }}>
@@ -1533,6 +1787,10 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     padding: 20, paddingBottom: Platform.OS === 'ios' ? 36 : 20,
   },
   detailSheetCollapsed: { paddingBottom: Platform.OS === 'ios' ? 28 : 16 },
+  // Header row puts dismiss controls in normal flow next to the title so
+  // their tap regions can't overlap the nickname TextInput below. The
+  // previous absolute-positioned V/X had hitSlop reaching into the input's
+  // focus area, hijacking taps as keyboard-open events.
   sheetHeaderRow: {
     flexDirection: 'row', alignItems: 'center', marginBottom: 12,
   },

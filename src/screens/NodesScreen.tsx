@@ -11,6 +11,7 @@ import { api } from '../services/api';
 import { useTheme } from '../theme';
 import { useAuthStore } from '../store/authStore';
 import { useCaps } from '../lib/useCaps';
+import { fmtTemp } from '../utils/units';
 
 // Sort matches the backend (display_order ASC NULLS LAST, name ASC). This is a
 // client-side safety net — the backend already returns nodes pre-sorted, but
@@ -27,6 +28,31 @@ function sortNodes(list: any[]): any[] {
     if (ao !== bo) return ao - bo;
     return (a?.name || '').localeCompare(b?.name || '');
   });
+}
+
+// CPU temperature color thresholds, matched EXACTLY to the dashboard's
+// CPU_TEMP_THRESHOLDS_C (WestshoreWatch-Dashboard/src/lib/temperature.js):
+// amber at 70 °C, red at 80 °C, green below. Provisional per the dashboard
+// (pending field-baseline tuning) — keep the two surfaces in sync.
+const CPU_TEMP_AMBER_C = 70;
+const CPU_TEMP_RED_C = 80;
+
+// Rounded "NN°F" label + theme color for a node's cpu_temp_c. Non-finite or
+// absent (X1/M1, or a Sentinel with no current reading) → muted "—". Color is
+// decided by comparing the raw CELSIUS value to the C thresholds; only the
+// displayed label is converted to °F via fmtTemp.
+function cpuTempCell(
+  celsius: unknown,
+  colors: ReturnType<typeof useTheme>,
+): { label: string; color: string } {
+  const c = Number(celsius);
+  if (celsius == null || !Number.isFinite(c)) {
+    return { label: '—', color: colors.textDim };
+  }
+  const label = fmtTemp(c);
+  if (c >= CPU_TEMP_RED_C) return { label, color: colors.red };
+  if (c >= CPU_TEMP_AMBER_C) return { label, color: colors.amber };
+  return { label, color: colors.green };
 }
 
 export default function NodesScreen() {
@@ -236,6 +262,7 @@ export default function NodesScreen() {
         const online = node.status === 'online';
         const lastSeen = node.last_seen ? new Date(node.last_seen) : null;
         const ageSec = lastSeen ? Math.round((Date.now() - lastSeen.getTime()) / 1000) : null;
+        const cpuTemp = cpuTempCell(node.cpu_temp_c, colors);
         const canMoveUp = index > 0;
         const canMoveDown = index < nodes.length - 1;
         return (
@@ -297,6 +324,7 @@ export default function NodesScreen() {
               <NodeDetail label="FIRMWARE" value={node.firmware_version || '—'} />
               <NodeDetail label="CONNECTION" value={(node.connection_type || '—').toUpperCase()} />
               <NodeDetail label="LAST SEEN" value={ageSec != null ? `${ageSec}s ago` : '—'} />
+              <NodeDetail label="CPU TEMP" value={cpuTemp.label} valueColor={cpuTemp.color} />
               {node.last_lat && node.last_lon && (
                 <NodeDetail
                   label="LOCATION"
@@ -407,12 +435,12 @@ export default function NodesScreen() {
   );
 }
 
-function NodeDetail({ label, value }: { label: string; value: string }) {
+function NodeDetail({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
   const colors = useTheme();
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 5 }}>
       <Text style={{ color: colors.textMuted, fontSize: 10, letterSpacing: 1, fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace' }}>{label}</Text>
-      <Text style={{ color: colors.textDim, fontSize: 11, fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace' }}>{value}</Text>
+      <Text style={{ color: valueColor ?? colors.textDim, fontSize: 11, fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace' }}>{value}</Text>
     </View>
   );
 }

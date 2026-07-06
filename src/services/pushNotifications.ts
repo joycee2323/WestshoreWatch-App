@@ -78,6 +78,7 @@ export const NOTIFICATION_KIND_CHANNELS: Record<string, string> = {
   deployment_expired: 'deployment_alerts',
   node_online: 'node_alerts',
   node_offline: 'node_alerts',
+  node_overheat: 'node_alerts',
   billing_subscription_cancelled: 'billing_alerts',
   billing_payment_failed: 'billing_alerts',
   billing_subscription_expiring: 'billing_alerts',
@@ -291,6 +292,17 @@ export async function revokePushToken(): Promise<void> {
   }
 }
 
+// Coerce a push-data value that may arrive as a number (Expo path) or a
+// string (FCM stringifies all data values) into a finite number, else null.
+function toFiniteNumber(v: any): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
 // Map a notification payload's `screen` field to a navigation action.
 // Called by the response listener and by in-app row taps.
 export function deepLinkForNotification(navigation: any, data: any): void {
@@ -299,19 +311,26 @@ export function deepLinkForNotification(navigation: any, data: any): void {
   const deploymentId = data && typeof data.deployment_id === 'string' ? data.deployment_id : undefined;
   try {
     switch (screen) {
-      case 'LiveMap':
-        // Forward deployment_id as `targetDeploymentId` so LiveMap can
-        // bias its active/passive mode decision toward the deployment
-        // the push referenced — necessary when the user has multiple
-        // active deployments and the .find() default would pick the
-        // wrong one. Backend always includes deployment_id in
-        // drone_detected push data (see routes/detections.js and
-        // routes/nodes.js sendNotificationToOrg sites).
-        navigation.navigate('Main', {
-          screen: 'LiveMap',
-          params: deploymentId ? { targetDeploymentId: deploymentId } : undefined,
-        });
+      case 'LiveMap': {
+        // Forward deployment_id as `targetDeploymentId` so LiveMap can bias
+        // its active/passive mode decision toward the deployment the push
+        // referenced. Also forward the drone identity (`uas_id`) and its seed
+        // coords (`lat`/`lng`) so LiveMap can snap to the specific drone, not
+        // just its deployment. All of uas_id/lat/lng are OPTIONAL — older push
+        // payloads omit them and LiveMap degrades to newest-in-deployment
+        // centering. `focusNonce` guarantees LiveMap's focus effect re-runs
+        // even when the same notification is tapped twice (identical params).
+        const uasId = data && typeof data.uas_id === 'string' ? data.uas_id : undefined;
+        const lat = toFiniteNumber(data && data.lat);
+        const lng = toFiniteNumber(data && data.lng);
+        const params: Record<string, any> = { focusNonce: Date.now() };
+        if (deploymentId) params.targetDeploymentId = deploymentId;
+        if (uasId) params.targetUasId = uasId;
+        if (lat != null) params.targetLat = lat;
+        if (lng != null) params.targetLon = lng;
+        navigation.navigate('Main', { screen: 'LiveMap', params });
         break;
+      }
       case 'DeploymentDetail':
         navigation.navigate('Main', { screen: 'Deployments', params: { deployment_id: deploymentId } });
         break;
@@ -330,6 +349,43 @@ export function deepLinkForNotification(navigation: any, data: any): void {
     }
   } catch (err) {
     console.warn('[push] deepLinkForNotification failed:', err);
+  }
+}
+
+// Guards against handling the same OS notification tap twice. A cold launch
+// delivers the tap via getLastNotificationResponseAsync() AND, on some OEMs,
+// re-delivers it to the runtime response listener once the JS runtime spins
+// up. Both funnel through deepLinkForNotification; without this the LiveMap
+// focus would fire twice. In-app notification-center taps carry no OS
+// identifier and are unaffected (they always handle).
+let lastHandledResponseId: string | null = null;
+
+function shouldHandleResponse(
+  response: Notifications.NotificationResponse | null | undefined,
+): boolean {
+  const id = response?.notification?.request?.identifier;
+  if (!id) return true;
+  if (id === lastHandledResponseId) return false;
+  lastHandledResponseId = id;
+  return true;
+}
+
+// Cold-start entry point. Call once the navigation tree is mounted and ready
+// (see AppNavigator's onReady gate). getLastNotificationResponseAsync returns
+// the notification tap that launched the app from a killed state (or null) —
+// the runtime response listener never sees it because the OS delivered the
+// tap before the JS runtime (and its listeners) existed. Routed through the
+// same deepLinkForNotification funnel as warm/background taps. Best-effort:
+// never throws into the caller.
+export async function consumeInitialNotificationResponse(navigation: any): Promise<void> {
+  try {
+    const response = await Notifications.getLastNotificationResponseAsync();
+    if (!response) return;
+    if (!shouldHandleResponse(response)) return;
+    const data = response?.notification?.request?.content?.data || {};
+    deepLinkForNotification(navigation, data);
+  } catch (err) {
+    console.warn('[push] consumeInitialNotificationResponse failed:', err);
   }
 }
 
@@ -354,6 +410,7 @@ export function setupNotificationListeners(
   });
   const subResponse = Notifications.addNotificationResponseReceivedListener(response => {
     try {
+      if (!shouldHandleResponse(response)) return;
       const data = response?.notification?.request?.content?.data || {};
       deepLinkForNotification(navigation, data);
     } catch (err) {
