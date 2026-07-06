@@ -43,7 +43,7 @@ module.exports = ({ config }) => ({
       // uses the gradle value. We still keep these aligned to prevent
       // future confusion when someone greps app.config.js for "what
       // version is shipping".
-      versionCode: 23,
+      versionCode: 25,
       // FCM credentials for push delivery on standalone builds. EAS
       // Build resolves GOOGLE_SERVICES_JSON (set as an EAS secret with
       // type=file) and substitutes the path; the local fallback is
@@ -72,12 +72,16 @@ module.exports = ({ config }) => ({
       ],
       'expo-secure-store',
       'expo-location',
-      // Notification icon defaults to the app icon. Add `icon` and
-      // `color` here once a dedicated 96×96 monochrome notification
-      // PNG is committed under ./assets/notification-icon.png.
+      // Dedicated monochrome status-bar notification icon (white crosshair on
+      // transparent) — NOT the full-color launcher. Applies to expo-presented
+      // local + remote (FCM) notifications. The equivalent native meta-data +
+      // drawables are also committed under android/ so the checked-in prebuild
+      // gets the icon without re-running `expo prebuild` (which would wipe the
+      // WearBridge native module).
       [
         'expo-notifications',
         {
+          icon: './assets/notification-icon.png',
           color: '#00d4ff',
           mode: 'production',
           enableBackgroundRemoteNotifications: true,

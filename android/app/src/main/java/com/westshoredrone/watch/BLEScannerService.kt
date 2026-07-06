@@ -490,6 +490,15 @@ class BLEScannerService : Service() {
         }
     }
 
+    // Monochrome status-bar notification icon (white crosshair on transparent),
+    // shared with the expo-notifications default via @drawable/notification_icon.
+    // Resolved by name so this compiles even in a checkout where the drawable
+    // hasn't been generated yet; falls back to the launcher icon if truly absent.
+    private fun notificationIconRes(): Int {
+        val id = resources.getIdentifier("notification_icon", "drawable", packageName)
+        return if (id != 0) id else applicationInfo.icon
+    }
+
     private fun startForegroundWithNotification() {
         Log.d(TAG, "startForegroundWithNotification: begin")
         createChannelIfNeeded()
@@ -507,7 +516,7 @@ class BLEScannerService : Service() {
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Westshore Watch scanning")
             .setContentText("Watching for nearby drones and Westshore Watch nodes")
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(notificationIconRes())
             .setOngoing(true)
             .setContentIntent(contentPI)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
