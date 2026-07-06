@@ -13,12 +13,16 @@ ble_log.txt
 
 app-log.txt
 *.logcat
-*.log
+expo-run-android.log
 
 # Signing credentials - NEVER commit
 *.jks
 *.pem
 *.keystore
+
+# App Store Connect API keys - NEVER commit
+*.p8
+AuthKey_*.p8
 
 # Build artifacts. Use a contents glob (not bare directory) so the
 # Play-verification file below can override via negation; bare

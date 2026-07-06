@@ -194,6 +194,26 @@ export default function AddNodeScreen() {
 
   const s = styles(colors);
 
+  if (Platform.OS === 'ios') {
+    return (
+      <ScrollView style={s.page} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+        <Text style={s.title}>ADD NODE</Text>
+        <View style={s.empty}>
+          <Text style={s.emptyText}>PAIRING UNAVAILABLE ON iOS</Text>
+          <Text style={s.emptyHint}>
+            Westshore Watch portable nodes (M1, X1) pair with an Android companion device that
+            handles Remote ID detection relay. Sentinel stationary nodes pair through their own
+            setup process.
+          </Text>
+          <Text style={s.emptyHint}>
+            Once a node is paired on your Android device, it appears here automatically — including
+            on this iPhone.
+          </Text>
+        </View>
+      </ScrollView>
+    );
+  }
+
   if (!canPairNode) {
     return (
       <ScrollView style={s.page} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>

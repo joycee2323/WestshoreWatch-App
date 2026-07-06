@@ -16,6 +16,8 @@ import { caps } from '../lib/caps';
 import { useNotificationsStore } from '../store/notificationsStore';
 import { getLastRegistrationStatus, registerForPushNotifications } from '../services/pushNotifications';
 import { getWatchdogStats } from '../services/bleScanner';
+import { enrollPairedWatch } from '../services/wearEnrollment';
+import { WearBridge } from '../native/WearBridge';
 
 // Hardcoded fallback if /api/docs/manual-url is unreachable. Kept in sync
 // with the backend route (src/routes/docs.js) — both must point at the
@@ -34,6 +36,7 @@ export default function SettingsScreen() {
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [loading, setLoading] = useState(true);
   const [manualUrl, setManualUrl] = useState<string>(MANUAL_URL_FALLBACK);
+  const [addingWatch, setAddingWatch] = useState(false);
   const unreadCount = useNotificationsStore(s => s.unreadCount);
   const refreshUnreadCount = useNotificationsStore(s => s.refreshUnreadCount);
 
@@ -107,6 +110,31 @@ export default function SettingsScreen() {
       Alert.alert('Test failed', err?.message || 'Could not send test notification.');
     }
   }, []);
+
+  // Wear OS enrollment handoff: mint a one-time code (authed) and hand it to the
+  // paired watch over the Data Layer. The raw user JWT never leaves the phone.
+  const handleAddWatch = useCallback(async () => {
+    if (addingWatch) return;
+    if (!WearBridge.isAvailable()) {
+      Alert.alert('Not available', 'Adding a watch is only available in the Android app build.');
+      return;
+    }
+    setAddingWatch(true);
+    try {
+      const { sentTo, expiresIn } = await enrollPairedWatch();
+      Alert.alert(
+        'Code sent to watch',
+        `Sent to ${sentTo}. Open Westshore Watch on the watch — it will finish enrolling within ${expiresIn}s.`,
+      );
+    } catch (err: any) {
+      Alert.alert(
+        "Couldn't add watch",
+        err?.message || 'Make sure the watch is paired and the watch app is open, then try again.',
+      );
+    } finally {
+      setAddingWatch(false);
+    }
+  }, [addingWatch]);
 
   useEffect(() => {
     api.getManualUrl()
@@ -239,7 +267,7 @@ export default function SettingsScreen() {
         <Text style={s.cardHeader}>APP INFO</Text>
         <Row label="VERSION" value="1.0.0" colors={colors} />
         <Row label="BACKEND" value="watch.westshoredrone.com" colors={colors} />
-        <Row label="BLE SCANNING" value="Active" colors={colors} />
+        <Row label={Platform.OS === 'android' ? 'BLE SCANNING' : 'DETECTION SOURCE'} value={Platform.OS === 'android' ? 'Active' : 'Connected nodes'} colors={colors} />
       </View>
 
       {/* Notifications */}
@@ -291,7 +319,7 @@ export default function SettingsScreen() {
             isLast={false}
           />
         )}
-        {__DEV__ && (
+        {__DEV__ && Platform.OS === 'android' && (
           <SettingRow
             colors={colors}
             label="Watchdog diagnostic"
@@ -301,6 +329,22 @@ export default function SettingsScreen() {
           />
         )}
       </View>
+
+      {/* Wear OS watch — Android only (native Data Layer bridge) */}
+      {Platform.OS === 'android' && (
+        <View style={s.rowCard}>
+          <SettingRow
+            colors={colors}
+            label="Add watch"
+            subtitle="Send an enrollment code to your paired Wear OS watch"
+            right={addingWatch
+              ? <ActivityIndicator color={colors.cyan} />
+              : <Text style={s.chevron}>›</Text>}
+            onPress={handleAddWatch}
+            isLast={true}
+          />
+        </View>
+      )}
 
       {/* Change Password — all users */}
       <TouchableOpacity style={s.changePasswordBtn} onPress={() => setShowChangePassword(true)}>

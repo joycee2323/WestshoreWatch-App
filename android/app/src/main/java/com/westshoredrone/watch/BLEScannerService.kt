@@ -11,6 +11,7 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanRecord
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
@@ -51,12 +52,6 @@ class BLEScannerService : Service() {
     // can attribute Location/System messages that don't carry their own uasId.
     private data class Attribution(val uasId: String, val lastBasicIdAtMs: Long)
     private val attributionBySource = java.util.concurrent.ConcurrentHashMap<String, Attribution>()
-
-    // MACs (uppercased) seen emitting a company-0x08FE identity advert, mapped
-    // to the elapsed-realtime ms of the most recent sighting. Lets the relay-
-    // advert upload path recognize our nodes without a MAC-OUI allowlist.
-    // Pruned by OBSERVED_NODE_TTL_MS in isObservedNode so it stays bounded.
-    private val observedNodeMacs = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     @Volatile
     private var lastPacketElapsedMs: Long = 0L
@@ -377,16 +372,12 @@ class BLEScannerService : Service() {
         emitEvent(EVENT_SCAN_RESULT, map)
 
         // Mark this node as recently-seen for the native heartbeat uploader.
-        // A node is recognized by its company-0x08FE identity advert (handle 3
-        // in firmware/ble_relay.c), not by MAC OUI, so any OUI is supported.
-        // The heartbeat path keeps nodes.last_seen current on the backend.
-        // Pre-port this lived in JS (LiveMapScreen.tsx) and froze under Doze;
-        // running it here lets heartbeats survive screen-off.
+        // Westshore-OUI MACs identify our own nodes; the heartbeat path is what
+        // keeps nodes.last_seen current on the backend. Pre-port this lived in
+        // JS (LiveMapScreen.tsx) and froze under Doze; running it here lets
+        // heartbeats survive screen-off.
         val macUpper = mac.uppercase()
-        if (isNodeIdentityAdvert(record?.manufacturerSpecificData)) {
-            // Remember this MAC emits identity adverts so the relay-advert
-            // upload path (which carries no 0x08FE) can recognize it.
-            observedNodeMacs[macUpper] = SystemClock.elapsedRealtime()
+        if (isWestshoreWatchNode(macUpper, record)) {
             val deviceId = macUpper.replace(":", "").replace("-", "")
             heartbeat?.markNodeSeen(deviceId)
         }
@@ -394,11 +385,12 @@ class BLEScannerService : Service() {
         // Now do the Kotlin-side upload path. Screen-off Doze suspends the JS
         // runtime, so parsing + POSTing here keeps detections flowing even
         // when the JS listener is dormant.
-        maybeEnqueueForUpload(macUpper, record?.serviceData)
+        maybeEnqueueForUpload(macUpper, record)
     }
 
-    private fun maybeEnqueueForUpload(sourceMacUpper: String, serviceData: Map<android.os.ParcelUuid, ByteArray>?) {
+    private fun maybeEnqueueForUpload(sourceMacUpper: String, record: ScanRecord?) {
         val up = uploader ?: return
+        val serviceData = record?.serviceData
         if (serviceData == null) return
         val odidBytes = serviceData.entries.firstOrNull {
             it.key.uuid.toString().equals(ODID_SERVICE_UUID, ignoreCase = true)
@@ -449,12 +441,7 @@ class BLEScannerService : Service() {
         }
 
         if (effectiveUasId == null) return
-        // The relay/pack advert carries no 0x08FE identity manufacturer data,
-        // so we recognize its source as one of our nodes only if we've seen a
-        // 0x08FE identity advert from this MAC (populated in emitScanResult).
-        // This rejects relayed ODID from real drones / third-party bridges,
-        // which never emit 0x08FE.
-        if (!isObservedNode(sourceMacUpper)) return
+        if (!isWestshoreWatchNode(sourceMacUpper, record)) return
 
         val lat = parsed.lat ?: return
         val lon = parsed.lon ?: return
@@ -477,32 +464,14 @@ class BLEScannerService : Service() {
         )
     }
 
-    // True when this scan record carries the Westshore node identity advert
-    // (manufacturer-specific data, company 0x08FE — handle 3 in
-    // firmware/ble_relay.c). The relay/pack adverts carry only ODID service
-    // data and the detection advert uses 0x08FF, so neither matches here.
-    private fun isNodeIdentityAdvert(mfgData: android.util.SparseArray<ByteArray>?): Boolean {
-        if (mfgData == null) return false
-        return mfgData.indexOfKey(WESTSHORE_COMPANY_ID) >= 0
-    }
-
-    // True when we've seen a 0x08FE identity advert from this MAC within the
-    // TTL. Used by the relay-advert upload path, whose frames don't self-
-    // identify. Prunes the entry (and any other stale ones) on read so the map
-    // can't grow unbounded across a long session of nodes coming and going.
-    private fun isObservedNode(macUpper: String): Boolean {
-        val now = SystemClock.elapsedRealtime()
-        val iter = observedNodeMacs.entries.iterator()
-        var fresh = false
-        while (iter.hasNext()) {
-            val e = iter.next()
-            if (now - e.value > OBSERVED_NODE_TTL_MS) {
-                iter.remove()
-            } else if (e.key == macUpper) {
-                fresh = true
-            }
-        }
-        return fresh
+    private fun isWestshoreWatchNode(macUpper: String, record: ScanRecord?): Boolean {
+        // Identity advert (handle 3) carries manufacturer-specific data under
+        // company 0x08FE. Its presence IS the recognition signal — no payload-
+        // length gating. Fallback to the legacy OUI allowlist for older fleet
+        // and for adverts that don't carry the identity block (e.g. detection
+        // advert, ODID relay).
+        if (record?.getManufacturerSpecificData(WESTSHORE_COMPANY_ID) != null) return true
+        return macUpper.startsWith("98:A3:16:7D") || macUpper.startsWith("38:44:BE")
     }
 
     private fun emitEvent(name: String, payload: WritableMap) {
@@ -599,11 +568,6 @@ class BLEScannerService : Service() {
         // as a discovery signature here — the app does not read the api_key
         // bytes.
         private const val WESTSHORE_COMPANY_ID = 0x08FE
-        // How long a MAC stays recognized as a node after its last identity
-        // advert. Handle 3 advertises every 500ms, so 60s gives wide headroom
-        // for BluetoothLeScanner batching / Doze jitter while bounding the
-        // observedNodeMacs map.
-        private const val OBSERVED_NODE_TTL_MS = 60_000L
         private const val CHANNEL_ID = "westshore_ble_scanner_v2"
         private const val NOTIFICATION_ID = 4471
         private const val WAKE_LOCK_TAG = "WestshoreWatch::BLEScannerService"

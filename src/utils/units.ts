@@ -24,6 +24,13 @@ export function toMph(ms: Num): number | null {
   const n = Number(ms);
   return Number.isFinite(n) ? n * MS_TO_MPH : null;
 }
+// °C → °F for display only. Storage, thresholds, and the alert comparison stay
+// Celsius (silicon limits); we only convert the number the user sees.
+export function cToF(celsius: Num): number | null {
+  if (celsius == null) return null;
+  const n = Number(celsius);
+  return Number.isFinite(n) ? n * 9 / 5 + 32 : null;
+}
 
 // Display formatters (rounding: altitude = whole feet; speed = 1-decimal mph;
 // distance = whole feet under 1000 ft, else miles to 2 decimals).
@@ -39,6 +46,11 @@ export function fmtDistance(m: Num): string {
   const ft = toFeet(m);
   if (ft == null) return '—';
   return ft < 1000 ? `${Math.round(ft)} ft` : `${(ft / FT_PER_MILE).toFixed(2)} mi`;
+}
+// Temperature: whole degrees Fahrenheit; null/non-finite → em dash.
+export function fmtTemp(celsius: Num): string {
+  const f = cToF(celsius);
+  return f == null ? '—' : `${Math.round(f)}°F`;
 }
 
 // CSV-parse normalizers (kept for parity with the other repos; the app has no
