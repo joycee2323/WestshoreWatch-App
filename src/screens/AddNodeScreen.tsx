@@ -168,7 +168,10 @@ export default function AddNodeScreen() {
       );
     } catch (err: any) {
       if (err.status === 402) {
-        Alert.alert('Node Limit Reached', 'Your current plan does not allow another node. Upgrade to add more.');
+        // iOS: no purchase steering (App Store Guideline 3.1.1). Android unchanged.
+        Alert.alert('Node Limit Reached', Platform.OS === 'ios'
+          ? "You've reached the node limit for this account. Contact your administrator."
+          : 'Your current plan does not allow another node. Upgrade to add more.');
       } else if (err.status === 409) {
         Alert.alert('Already Claimed', 'This node has already been claimed by another organization. Contact support if this is a mistake.');
       } else if (err.status === 429) {
@@ -194,34 +197,22 @@ export default function AddNodeScreen() {
 
   const s = styles(colors);
 
-  if (Platform.OS === 'ios') {
-    return (
-      <ScrollView style={s.page} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-        <Text style={s.title}>ADD NODE</Text>
-        <View style={s.empty}>
-          <Text style={s.emptyText}>PAIRING UNAVAILABLE ON iOS</Text>
-          <Text style={s.emptyHint}>
-            Westshore Watch portable nodes (M1, X1) pair with an Android companion device that
-            handles Remote ID detection relay. Sentinel stationary nodes pair through their own
-            setup process.
-          </Text>
-          <Text style={s.emptyHint}>
-            Once a node is paired on your Android device, it appears here automatically — including
-            on this iPhone.
-          </Text>
-        </View>
-      </ScrollView>
-    );
-  }
-
   if (!canPairNode) {
+    // Reached on iOS for ALL roles (pairing is platform-impossible there) and
+    // on Android only for under-privileged roles. The scanner is never started
+    // in this branch — the effect above early-returns on !canPairNode — so
+    // there is deliberately no ActivityIndicator/spinner here. iOS gets a
+    // platform explanation; Android keeps the role-gate message.
+    const isIos = Platform.OS === 'ios';
     return (
       <ScrollView style={s.page} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
         <Text style={s.title}>ADD NODE</Text>
         <View style={s.empty}>
-          <Text style={s.emptyText}>READ-ONLY</Text>
+          <Text style={s.emptyText}>{isIos ? 'PAIRING UNAVAILABLE' : 'READ-ONLY'}</Text>
           <Text style={s.emptyHint}>
-            Only operators and admins can pair nodes. Ask your organization admin to grant access.
+            {isIos
+              ? 'Node pairing is managed from the Westshore Watch web dashboard or the Android app. This device displays detections from nodes assigned to your deployments.'
+              : 'Only operators and admins can pair nodes. Ask your organization admin to grant access.'}
           </Text>
         </View>
       </ScrollView>

@@ -8,7 +8,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
 import { useAuthStore } from '../store/authStore';
 
-const SENTINEL_URL = 'https://westshoredrone.com/watch-sentinel/';
 const X1_URL = 'https://westshoredrone.com/watch-x1/';
 const M1_URL = 'https://westshoredrone.com/watch-m1/';
 
@@ -56,102 +55,64 @@ export default function OnboardingScreen({ onRefresh, refreshing, onSkip }: Prop
 
       <View style={s.body}>
         <Text style={s.heading}>NO NODES REGISTERED</Text>
+        <Text style={s.description}>
+          Westshore Watch needs at least one X1 node to start detecting drones in your area.
+          Each node is a dedicated BLE/Wi-Fi sensor that relays Remote ID broadcasts
+          to your dashboard in real time.
+        </Text>
+
+        {/* Node pairing is Android/web-only — iOS CoreBluetooth can't discover
+            or claim a node (see lib/useCaps + services/bleScanner). On iOS,
+            replace the "SCAN FOR NEARBY NODE" CTA (which would dead-end on the
+            "pairing unavailable" screen) with the same explanation. The
+            hardware purchase links below are intentional/IAP-exempt and stay on
+            both platforms. Android keeps the scan button exactly as-is. */}
         {Platform.OS === 'ios' ? (
-          <>
-            <Text style={s.description}>
-              Westshore Watch portable nodes (M1, X1) pair with an Android companion device that
-              relays Remote ID broadcasts to the cloud. Sentinel stationary nodes pair through
-              their own setup process and run independently.
+          <View style={s.infoBox}>
+            <Text style={s.infoText}>
+              Node pairing is managed from the Westshore Watch web dashboard or the Android app.
+              This device views detections from nodes assigned to your deployments.
             </Text>
-            <Text style={s.description}>
-              Once any node in your organization is paired and online, this app shows you
-              everything it sees — live detections, flight paths, deployments, statistics,
-              and alerts.
-            </Text>
-
-            <TouchableOpacity
-              style={s.secondaryBtn}
-              onPress={() => Linking.openURL(SENTINEL_URL)}
-              activeOpacity={0.8}
-            >
-              <Text style={s.secondaryBtnText}>GET WESTSHORE WATCH SENTINEL</Text>
-              <Text style={s.secondaryBtnPrice}>$1,999</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={s.secondaryBtn}
-              onPress={() => Linking.openURL(X1_URL)}
-              activeOpacity={0.8}
-            >
-              <Text style={s.secondaryBtnText}>GET WESTSHORE WATCH X1</Text>
-              <Text style={s.secondaryBtnPrice}>$799</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={s.secondaryBtn}
-              onPress={() => Linking.openURL(M1_URL)}
-              activeOpacity={0.8}
-            >
-              <Text style={s.secondaryBtnText}>GET WESTSHORE WATCH M1</Text>
-              <Text style={s.secondaryBtnPrice}>$399</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={s.skipLink}
-              onPress={onSkip}
-              activeOpacity={0.6}
-            >
-              <Text style={s.skipText}>SKIP FOR NOW</Text>
-              <Text style={s.skipSub}>I'll add a node from another device</Text>
-            </TouchableOpacity>
-          </>
+          </View>
         ) : (
-          <>
-            <Text style={s.description}>
-              Westshore Watch needs at least one X1 node to start detecting drones in your area.
-              Each node is a dedicated BLE/Wi-Fi sensor that relays Remote ID broadcasts
-              to your dashboard in real time.
-            </Text>
-
-            <TouchableOpacity
-              style={s.primaryBtn}
-              onPress={() => navigation.navigate('AddNode')}
-              activeOpacity={0.8}
-            >
-              <Text style={s.primaryBtnText}>SCAN FOR NEARBY NODE</Text>
-              <Text style={s.primaryBtnPrice}>→</Text>
-            </TouchableOpacity>
-
-            <Text style={[s.chooseLabel, { marginTop: 24 }]}>Don't have a node yet?</Text>
-
-            <TouchableOpacity
-              style={s.secondaryBtn}
-              onPress={() => Linking.openURL(X1_URL)}
-              activeOpacity={0.8}
-            >
-              <Text style={s.secondaryBtnText}>GET WESTSHORE WATCH X1</Text>
-              <Text style={s.secondaryBtnPrice}>$799</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={s.secondaryBtn}
-              onPress={() => Linking.openURL(M1_URL)}
-              activeOpacity={0.8}
-            >
-              <Text style={s.secondaryBtnText}>GET WESTSHORE WATCH M1</Text>
-              <Text style={s.secondaryBtnPrice}>$399</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={s.skipLink}
-              onPress={onSkip}
-              activeOpacity={0.6}
-            >
-              <Text style={s.skipText}>SKIP FOR NOW</Text>
-              <Text style={s.skipSub}>I don't have a node yet — explore the app</Text>
-            </TouchableOpacity>
-          </>
+          <TouchableOpacity
+            style={s.primaryBtn}
+            onPress={() => navigation.navigate('AddNode')}
+            activeOpacity={0.8}
+          >
+            <Text style={s.primaryBtnText}>SCAN FOR NEARBY NODE</Text>
+            <Text style={s.primaryBtnPrice}>→</Text>
+          </TouchableOpacity>
         )}
+
+        <Text style={[s.chooseLabel, { marginTop: 24 }]}>Don't have a node yet?</Text>
+
+        <TouchableOpacity
+          style={s.secondaryBtn}
+          onPress={() => Linking.openURL(X1_URL)}
+          activeOpacity={0.8}
+        >
+          <Text style={s.secondaryBtnText}>GET WESTSHORE WATCH X1</Text>
+          <Text style={s.secondaryBtnPrice}>$799</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={s.secondaryBtn}
+          onPress={() => Linking.openURL(M1_URL)}
+          activeOpacity={0.8}
+        >
+          <Text style={s.secondaryBtnText}>GET WESTSHORE WATCH M1</Text>
+          <Text style={s.secondaryBtnPrice}>$399</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={s.skipLink}
+          onPress={onSkip}
+          activeOpacity={0.6}
+        >
+          <Text style={s.skipText}>SKIP FOR NOW</Text>
+          <Text style={s.skipSub}>I don't have a node yet — explore the app</Text>
+        </TouchableOpacity>
       </View>
 
       <Text style={s.hint}>Pull down to refresh after registering a node</Text>
@@ -191,6 +152,14 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     color: c.textMuted, fontSize: 11, letterSpacing: 2, marginBottom: 12,
     textAlign: 'center',
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  infoBox: {
+    borderWidth: 1, borderColor: c.cyan, borderRadius: 8,
+    paddingVertical: 16, paddingHorizontal: 16,
+    backgroundColor: 'rgba(0,212,255,0.08)',
+  },
+  infoText: {
+    color: c.text, fontSize: 12, lineHeight: 19, textAlign: 'center',
   },
   primaryBtn: {
     backgroundColor: c.cyan, borderRadius: 8,
