@@ -120,7 +120,10 @@ export default function NodesScreen() {
       if (at_cap) {
         Alert.alert(
           'Node Limit Reached',
-          `Your ${plan} plan allows ${limit} node${limit === 1 ? '' : 's'} (you have ${current}). Upgrade to add more.`,
+          // iOS: no purchase steering (App Store Guideline 3.1.1). Android unchanged.
+          Platform.OS === 'ios'
+            ? "You've reached the node limit for this account. Contact your administrator."
+            : `Your ${plan} plan allows ${limit} node${limit === 1 ? '' : 's'} (you have ${current}). Upgrade to add more.`,
         );
         return;
       }
@@ -359,7 +362,9 @@ export default function NodesScreen() {
           <Text style={s.emptyHint}>
             {c.canPairNodeOnThisDevice
               ? 'Claim a nearby node to start detecting drones'
-              : 'No nodes have been registered for your organization yet.'}
+              : Platform.OS === 'ios'
+                ? 'Node pairing is managed from the Westshore Watch web dashboard or the Android app. This device displays detections from nodes assigned to your deployments.'
+                : 'No nodes have been registered for your organization yet.'}
           </Text>
           {c.canPairNodeOnThisDevice && (
             <TouchableOpacity

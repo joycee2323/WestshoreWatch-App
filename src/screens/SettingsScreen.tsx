@@ -10,6 +10,7 @@ import BillingScreen from './BillingScreen';
 import { Linking } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import ChangePasswordScreen from './ChangePasswordScreen';
+import DeleteAccountScreen from './DeleteAccountScreen';
 import { api } from '../services/api';
 import { useTheme } from '../theme';
 import { caps } from '../lib/caps';
@@ -34,6 +35,7 @@ export default function SettingsScreen() {
   const [billing, setBilling] = useState<any>(null);
   const [showBilling, setShowBilling] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [loading, setLoading] = useState(true);
   const [manualUrl, setManualUrl] = useState<string>(MANUAL_URL_FALLBACK);
   const [addingWatch, setAddingWatch] = useState(false);
@@ -163,6 +165,9 @@ export default function SettingsScreen() {
   };
 
   useEffect(() => {
+    // iOS: no billing/subscription UI (App Store Guideline 3.1.1), so skip the
+    // billing-info fetch entirely — no network call. Android unchanged.
+    if (Platform.OS === 'ios') { setLoading(false); return; }
     api.getBillingStatus().then(setBilling).catch(console.warn).finally(() => setLoading(false));
   }, []);
 
@@ -180,7 +185,9 @@ export default function SettingsScreen() {
 
   const s = styles(colors);
 
-  if (showBilling) {
+  // iOS: never render the external billing WebView, even via stale/programmatic
+  // state — App Store Guideline 3.1.1 (no external purchase). Android unchanged.
+  if (showBilling && Platform.OS !== 'ios') {
     return <BillingScreen onDone={() => {
       setShowBilling(false);
       api.getBillingStatus().then(setBilling).catch(console.warn);
@@ -189,6 +196,18 @@ export default function SettingsScreen() {
 
   if (showChangePassword) {
     return <ChangePasswordScreen onDone={() => setShowChangePassword(false)} />;
+  }
+
+  // Delete-account confirmation overlay (Apple Guideline 5.1.1(v)). On success
+  // onDeleted runs the same logout cleanup as Sign Out, which flips the
+  // navigator back to Login; on 409/500 the screen keeps the user here.
+  if (showDeleteAccount) {
+    return (
+      <DeleteAccountScreen
+        onCancel={() => setShowDeleteAccount(false)}
+        onDeleted={logout}
+      />
+    );
   }
 
   return (
@@ -212,8 +231,10 @@ export default function SettingsScreen() {
         </View>
       </View>
 
-      {/* Billing — admins only (backend 403s viewers/operators on /billing/status) */}
-      {c.canViewBilling && (
+      {/* Billing/subscription status — admins only (backend 403s viewers/operators
+          on /billing/status). Hidden entirely on iOS (App Store Guideline 3.1.1:
+          no subscription/credits/pricing UI). Android unchanged. */}
+      {c.canViewBilling && Platform.OS !== 'ios' && (
       <View style={s.card}>
         <Text style={s.cardHeader}>SUBSCRIPTION</Text>
         {loading ? (
@@ -246,8 +267,10 @@ export default function SettingsScreen() {
       </View>
       )}
 
-      {/* Upgrade — org_admin only */}
-      {canBilling && (
+      {/* Upgrade — org_admin only. Hidden on iOS (App Store Guideline 3.1.1:
+          no linking to external purchase — this opens the web billing page).
+          Android unchanged. */}
+      {canBilling && Platform.OS !== 'ios' && (
         <TouchableOpacity style={s.upgradeBtn} onPress={() => setShowBilling(true)}>
           <Text style={s.upgradeBtnText}>⚡ UPGRADE / BUY CREDITS</Text>
         </TouchableOpacity>
@@ -403,6 +426,14 @@ export default function SettingsScreen() {
       <TouchableOpacity style={s.logoutBtn} onPress={handleLogout}>
         <Text style={s.logoutText}>SIGN OUT</Text>
       </TouchableOpacity>
+
+      {/* Delete account — Apple Guideline 5.1.1(v). In-app, permanent account
+          deletion, shown on all platforms. Visually distinct from the bordered
+          Sign Out button (plain underlined destructive text) and routed through
+          a confirmation screen. */}
+      <TouchableOpacity style={s.deleteAccountBtn} onPress={() => setShowDeleteAccount(true)}>
+        <Text style={s.deleteAccountText}>DELETE ACCOUNT</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -539,6 +570,14 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   },
   logoutText: {
     color: c.red, fontSize: 13, fontWeight: '700', letterSpacing: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  deleteAccountBtn: {
+    marginTop: 14, paddingVertical: 12, alignItems: 'center',
+  },
+  deleteAccountText: {
+    color: c.red, fontSize: 12, fontWeight: '700', letterSpacing: 2,
+    textDecorationLine: 'underline',
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
 });

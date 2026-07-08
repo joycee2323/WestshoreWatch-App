@@ -2,7 +2,7 @@ module.exports = ({ config }) => ({
   expo: {
     name: 'Westshore Watch',
     slug: 'westshorewatch',
-    version: '1.1.2',
+    version: '1.1.3',
     orientation: 'default',
     icon: './assets/icon.png',
     scheme: 'westshorewatch',
@@ -16,13 +16,22 @@ module.exports = ({ config }) => ({
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.westshoredrone.watch',
-      buildNumber: '1',
+      buildNumber: '10',
       config: {
         usesNonExemptEncryption: false,
       },
       infoPlist: {
         NSLocationWhenInUseUsageDescription:
           'Westshore Watch uses your location to center the map on your area and show nearby detections.',
+        NSBluetoothAlwaysUsageDescription:
+          'Westshore Watch uses Bluetooth to receive Remote ID broadcasts relayed from your Westshore Watch detection nodes.',
+        // remote-notification comes from the expo-notifications plugin at
+        // prebuild; we declare it explicitly here alongside bluetooth-central
+        // so an explicit infoPlist.UIBackgroundModes (which takes precedence)
+        // doesn't drop push background delivery. bluetooth-central lets the
+        // CBCentralManager keep receiving ODID adverts for a limited,
+        // OS-throttled window after backgrounding — see ios/BLEScannerModule.
+        UIBackgroundModes: ['remote-notification', 'bluetooth-central'],
         ITSAppUsesNonExemptEncryption: false,
       },
       entitlements: {
@@ -70,8 +79,32 @@ module.exports = ({ config }) => ({
           RNMapboxMapsDownloadToken: process.env.MAPBOX_DOWNLOAD_TOKEN,
         },
       ],
-      'expo-secure-store',
-      'expo-location',
+      [
+        'expo-secure-store',
+        {
+          // Real purpose string for NSFaceIDUsageDescription (we store the
+          // auth_token / login credentials in SecureStore). Without this the
+          // plugin injects a generic "$(PRODUCT_NAME)" placeholder — Apple
+          // Guideline 5.1.1 risk.
+          faceIDPermission:
+            'Westshore Watch uses Face ID to protect your saved login credentials.',
+        },
+      ],
+      [
+        'expo-location',
+        {
+          // The app only calls requestWhenInUseAuthorization, so suppress the
+          // Always-location keys (passing false makes @expo/config-plugins
+          // applyPermissions DELETE the key) to avoid the generic
+          // "$(PRODUCT_NAME)" placeholders the plugin injects by default. The
+          // real WhenInUse string is also declared in ios.infoPlist; set it
+          // here too so it doesn't depend on prebuild mod ordering.
+          locationWhenInUsePermission:
+            'Westshore Watch uses your location to center the map on your area and show nearby detections.',
+          locationAlwaysAndWhenInUsePermission: false,
+          locationAlwaysPermission: false,
+        },
+      ],
       // Notification icon defaults to the app icon. Add `icon` and
       // `color` here once a dedicated 96×96 monochrome notification
       // PNG is committed under ./assets/notification-icon.png.
@@ -83,6 +116,16 @@ module.exports = ({ config }) => ({
           enableBackgroundRemoteNotifications: true,
         },
       ],
+      // Injects the hand-written iOS BLEScanner Swift module (Swift + Obj-C
+      // bridge) into the prebuilt Xcode project. Source lives in
+      // plugins/ios/BLEScanner/. See plugins/withBleScanner.js. No-op on Android
+      // (the Android module ships as committed Kotlin under android/).
+      './plugins/withBleScanner',
+      // Re-applies the fmt/FMT_USE_CONSTEVAL=0 Podfile post_install patch on
+      // every prebuild (required to compile fmt 11.x under recent Xcode/clang).
+      // Needed now that ios/ is .easignored and regenerated on each cloud build.
+      // See plugins/withFmtConstevalFix.js. No-op on Android.
+      './plugins/withFmtConstevalFix',
     ],
     extra: {
       eas: {

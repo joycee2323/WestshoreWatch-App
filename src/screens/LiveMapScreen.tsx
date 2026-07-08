@@ -6,6 +6,9 @@ import MapboxGL from '@rnmapbox/maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import KeepScreenOnToggle from '../components/KeepScreenOnToggle';
+import KeepScreenActiveModal from '../components/KeepScreenActiveModal';
+import DetectionLimitedBanner from '../components/DetectionLimitedBanner';
+import { useScanActiveWarning } from '../hooks/useScanActiveWarning';
 import { useDroneStore, makeBackendDroneKey } from '../store/droneStore';
 import { useAuthStore } from '../store/authStore';
 import { createWebSocket, api, ReconnectingWebSocket, SubscribeMessage } from '../services/api';
@@ -27,6 +30,28 @@ const NICKNAME_MAX = 30;
 // the app sees per session, which is small in practice.
 const loggedSkippedUasIds = new Set<string>();
 
+// Backend serializes Postgres NUMERIC lat/lon as strings via the `pg` driver.
+// Android RN Mapbox coerces silently; iOS strict-decodes Doubles via Codable
+// and rejects strings ("Expected to decode Double but found a string"). The
+// 'typeof === number' filters at the camera-target call sites also drop
+// every node in this case. Normalize at every data ingest point so the
+// React state holds numbers (or null) — every downstream consumer is then
+// safe regardless of platform.
+const numOrNull = (v: any): number | null => {
+  if (v == null) return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+// Coerces last_lat/last_lon on a node or drone-shaped object. Returns a
+// shallow copy with the two fields normalized; everything else passes
+// through unchanged.
+const normalizeCoords = <T extends { last_lat?: any; last_lon?: any }>(n: T): T => ({
+  ...n,
+  last_lat: numOrNull(n.last_lat),
+  last_lon: numOrNull(n.last_lon),
+});
+
 // A detection is "lent-external" (owner view) when it comes from a node THIS
 // org owns but is deployed in another org's deployment: node_org_id is mine and
 // deployment_org_id is someone else's. Derived from the explicit org fields the
@@ -42,6 +67,10 @@ export default function LiveMapScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const route = useRoute();
+
+  // iOS background-during-scan warning (notification, or banner fallback when
+  // notification permission is denied). Tied to the real scanner state.
+  const { showBanner: showScanWarning, dismissBanner: dismissScanWarning } = useScanActiveWarning();
 
   // Mirrors the most recent push-notification deep-link hint. The push
   // payload's `data.deployment_id` is forwarded through navigation params
@@ -371,7 +400,7 @@ export default function LiveMapScreen() {
       const result = targetIds.length === 1
         ? await api.getNodes(targetIds[0])
         : await api.getNodesForDeployments(targetIds);
-      setNodes(Array.isArray(result) ? result : []);
+      setNodes(Array.isArray(result) ? result.map(normalizeCoords) : []);
     } catch (err) {
       console.warn('[nodeRefetch] failed:', err);
     }
@@ -1076,7 +1105,7 @@ export default function LiveMapScreen() {
         if (Array.isArray(dets)) {
           for (const d of dets) updateBackendDrone(d);
         }
-        setPassiveNodes(Array.isArray(nodeList) ? nodeList : []);
+        setPassiveNodes(Array.isArray(nodeList) ? nodeList.map(normalizeCoords) : []);
       } catch (err) {
         console.warn('[passive] poll failed:', err);
       }
@@ -1139,7 +1168,7 @@ export default function LiveMapScreen() {
         // re-render — NODE_POSITION can arrive frequently for a mobile node.
         const move = (prev: any[]) => prev.some((n: any) => n.id === msg.node_id)
           ? prev.map((n: any) => n.id === msg.node_id
-              ? { ...n, last_lat: msg.lat, last_lon: msg.lon }
+              ? { ...n, last_lat: numOrNull(msg.lat), last_lon: numOrNull(msg.lon) }
               : n)
           : prev;
         setNodes(move);
@@ -1506,11 +1535,21 @@ export default function LiveMapScreen() {
           <View style={{ flex: 1 }}>
             <Text style={s.bgLocTitle}>DEPLOYMENT PAUSED</Text>
             <Text style={s.bgLocSub}>
-              Detections are queued and will upload when the deployment resumes. Visit watch.westshoredrone.com/billing for details.
+              {Platform.OS === 'ios'
+                ? 'This deployment is paused. Contact your administrator to restore service.'
+                : 'Detections are queued and will upload when the deployment resumes. Visit watch.westshoredrone.com/billing for details.'}
             </Text>
           </View>
         </View>
       )}
+
+      {/* iOS: nudge to keep the app open when backgrounded mid-scan, shown
+          only when notification permission is denied (otherwise an OS
+          notification is used instead). */}
+      <DetectionLimitedBanner visible={showScanWarning} onDismiss={dismissScanWarning} />
+
+      {/* iOS: one-time "keep screen active" warning on first entry. */}
+      <KeepScreenActiveModal storageKey="seenMapWarning_liveMap" />
 
       {/* Selected drone sheet */}
       {selectedDrone && (() => {

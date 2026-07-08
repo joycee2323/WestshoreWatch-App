@@ -151,6 +151,16 @@ export const api = {
   forgotPassword: (email: string) =>
     request('POST', '/auth/forgot-password', { email }),
 
+  // Account deletion (Apple App Store Guideline 5.1.1(v)). DELETE /api/auth/me
+  // deletes the CALLER'S OWN account; request() attaches the JWT.
+  //   200 { deleted: true, message } → success (caller signs out)
+  //   409 { error }                  → last org admin / has tax-exemption
+  //                                    records; UI shows error, stays logged in
+  //   500 { error: 'Server error' }  → failure
+  // request() throws on non-2xx with err.error as the message and the HTTP
+  // status attached, so the UI can branch on `status === 409`.
+  deleteAccount: () => request('DELETE', '/auth/me'),
+
   // Orgs the current user can create/operate deployments in (home + operate
   // grants). Render the "Create in" selector only when length > 1.
   getOperableOrgs: () => request('GET', '/org-grants/operable-orgs'),
@@ -217,6 +227,12 @@ export const api = {
   // No JS wrapper here — the native side talks to the backend directly.
   nodeDetections: (deviceId: string, drones: any[]) =>
     request('POST', `/nodes/${encodeURIComponent(deviceId)}/detections`, { drones }),
+  // Node-less detections (iOS relay path): a phone relaying a DroneScout-bridge
+  // drone has no Westshore node MAC, so it posts to the deployment directly.
+  // User-JWT auth; the backend validates deploymentId through the caller's scope
+  // and inserts with node_id = NULL. Body shape matches nodeDetections.
+  deploymentDetections: (deploymentId: string, drones: any[]) =>
+    request('POST', `/deployments/${encodeURIComponent(deploymentId)}/detections`, { drones }),
   getNodeLimit: () => request('GET', '/nodes/limit'),
   claimNode: (mac: string, name?: string) => {
     const body: any = { mac };

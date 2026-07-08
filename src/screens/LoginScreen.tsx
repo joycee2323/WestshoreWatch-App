@@ -83,14 +83,20 @@ export default function LoginScreen({ navigation }: any) {
             <Text style={s.forgotText}>Forgot password?</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={s.registerLink}
-            onPress={() => navigation.navigate('Register')}
-          >
-            <Text style={s.registerText}>
-              Don't have an account? <Text style={s.registerEmphasis}>Create account</Text>
-            </Text>
-          </TouchableOpacity>
+          {/* In-app account/org creation is Android/web-only. iOS is sign-in
+              only per App Store Guideline 3.1.1 (registration was flagged as
+              access to an external purchase mechanism). The Register route is
+              also gated out of the navigator on iOS — see AppNavigator. */}
+          {Platform.OS !== 'ios' && (
+            <TouchableOpacity
+              style={s.registerLink}
+              onPress={() => navigation.navigate('Register')}
+            >
+              <Text style={s.registerText}>
+                Don't have an account? <Text style={s.registerEmphasis}>Create account</Text>
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Guest mode — Android only (BLE scanning requires the native scanner) */}
