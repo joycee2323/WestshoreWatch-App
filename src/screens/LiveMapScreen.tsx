@@ -9,6 +9,7 @@ import KeepScreenOnToggle from '../components/KeepScreenOnToggle';
 import KeepScreenActiveModal from '../components/KeepScreenActiveModal';
 import DetectionLimitedBanner from '../components/DetectionLimitedBanner';
 import { useScanActiveWarning } from '../hooks/useScanActiveWarning';
+import { useRelayTarget } from '../hooks/useRelayTarget';
 import { useDroneStore, makeBackendDroneKey } from '../store/droneStore';
 import { useAuthStore } from '../store/authStore';
 import { createWebSocket, api, ReconnectingWebSocket, SubscribeMessage } from '../services/api';
@@ -194,6 +195,13 @@ export default function LiveMapScreen() {
   const [activeDeployments, setActiveDeployments] = useState<any[]>([]);
   const activeDeploymentsRef = useRef<any[]>([]);
   useEffect(() => { activeDeploymentsRef.current = activeDeployments; }, [activeDeployments]);
+
+  // Drive the iOS node-less relay target (which deployment this phone uploads
+  // BLE detections to): auto-pick the sole operable active deployment, prompt on
+  // ambiguity, clear when none. Sets relayDeploymentId in bleScanner, which gates
+  // enqueueDetectionUpload → /api/deployments/:id/detections. Distinct from the
+  // view scope below.
+  useRelayTarget(activeDeployments, orgId);
 
   // Which deployment the map is currently SCOPED to (display + node fetch +
   // WS subscription + drone render all derive from this). 'ALL' = every
