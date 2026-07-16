@@ -2,7 +2,7 @@ import { NativeEventEmitter, Platform, EmitterSubscription, DeviceEventEmitter }
 import * as SecureStore from 'expo-secure-store';
 import NativeBLEScanner from '../specs/NativeBLEScanner';
 import { parseOdidAdvertisement, OdidDetection } from './odidParser';
-import { notifyNewDrone } from './droneNotifier';
+import { notifyNewDrone, resetNotifiedDrones } from './droneNotifier';
 import { enqueueDetectionUpload, stopDetectionUpload } from './detectionUpload';
 
 export interface WatchdogStats {
@@ -140,13 +140,6 @@ export interface DiscoveredNode {
 
 const discoveredNodes = new Map<string, DiscoveredNode>();
 
-// Firmware now emits basic_id every cycle (handle 0, option A) AND a
-// self-identifying ODID Message Pack every cycle (handle 1, option C). TTL
-// only needs to cover the ~50ms intra-burst gap between a basic_id and its
-// sibling Location on the legacy path; 200ms gives ~4x headroom for BLE
-// scanner batching/reorder jitter. Pack-parsed ads (msgType 0xF) bypass
-// this inheritance path entirely — see below.
-const ATTRIBUTION_TTL_MS = 200;
 const ODID_MSG_PACK = 0xF;
 const ODID_MSG_SYSTEM = 4;
 // Westshore Watch node identity advertiser company ID (handle 3 in
@@ -156,7 +149,6 @@ const ODID_MSG_SYSTEM = 4;
 // ODID service data (0xFFFA) and the detection advert uses 0x08FF, so neither
 // can match this check.
 const WESTSHORE_COMPANY_ID = 0x08fe;
-const mergeBySource = new Map<string, { uasId: string; lastBasicIdAt: number }>();
 
 // Operator location (op_lat/op_lon) rides in the relayed System frame
 // (ODID msgType 4), which — like Location — carries NO uasId. A System frame
@@ -341,7 +333,11 @@ export async function startBleScanning(
     const mac = device.mac;
     const serviceDataMap = device.serviceData;
 
-    if (isWestshoreWatchNode(mac, device.manufacturerData)) {
+    // Recognized Westshore node (0x08FE identity advert or legacy OUI). Captured
+    // once so the drone-notification upload gate below can reuse it: a recognized
+    // node with a position is what drives the native upload path.
+    const isNode = isWestshoreWatchNode(mac, device.manufacturerData);
+    if (isNode) {
       const macUpper = mac.toUpperCase();
       discoveredNodes.set(macUpper, {
         mac: macUpper,
@@ -382,12 +378,6 @@ export async function startBleScanning(
     if (parsed.msgType === ODID_MSG_PACK) {
       if (parsed.uasId) {
         effectiveUasId = parsed.uasId;
-        const prev = mergeBySource.get(sourceMacUpper);
-        // Still fire first-sighting notifications on pack arrivals, but DO
-        // NOT write to mergeBySource — legacy-path inheritance state is
-        // independent and shouldn't be influenced by pack emission.
-        const isNewSighting = !prev || prev.uasId !== parsed.uasId;
-        if (isNewSighting) void notifyNewDrone(parsed.uasId);
       }
     } else if (parsed.uasId) {
       effectiveUasId = parsed.uasId;
@@ -399,15 +389,6 @@ export async function startBleScanning(
         recentBasicIdsBySource.set(sourceMacUpper, perSource);
       }
       perSource.set(parsed.uasId, now);
-
-      const prev = mergeBySource.get(sourceMacUpper);
-      const isNewSighting = !prev
-        || prev.uasId !== parsed.uasId
-        || (now - prev.lastBasicIdAt) > ATTRIBUTION_TTL_MS;
-      mergeBySource.set(sourceMacUpper, { uasId: parsed.uasId, lastBasicIdAt: now });
-      if (isNewSighting) {
-        void notifyNewDrone(parsed.uasId);
-      }
     } else {
       // No in-frame uasId — a relayed standalone Location/System (e.g. a DJI
       // drone behind a DroneScout bridge). Inherit cross-frame ONLY when this
@@ -499,6 +480,25 @@ export async function startBleScanning(
         ts: parsed.odidTimestamp ?? null,
       });
     }
+
+    // Local "new drone" fallback notification — arm ONLY when we actually
+    // attempted to log this detection somewhere, so we never tell the user a
+    // drone was detected that the backend has no record of. Two upload paths can
+    // log it:
+    //   • node-less JS upload (enqueueDetectionUpload above): relay target + position
+    //   • native upload (iOS WSWDetectionUploader / Android DetectionUploader):
+    //     fires for a recognized node with a position
+    // If neither could have fired (no position, no relay target, not a node), do
+    // NOT arm the fallback — in that case nothing will be logged and a "detected"
+    // notification would be actively wrong. The legitimate backend-down case still
+    // works: an upload WAS attempted, the push doesn't return, the 8s fallback
+    // fires. notifyNewDrone dedups per-uasId, so calling it on every qualifying
+    // frame still notifies at most once per drone per session.
+    const nodeLessUploadAttempted = !!relayDeploymentId && hasPosition;
+    const nativeUploadAttempted = isNode && hasPosition;
+    if (nodeLessUploadAttempted || nativeUploadAttempted) {
+      void notifyNewDrone(effectiveUasId);
+    }
   });
 
   // Prime the native uploader with the current token before scanning so the
@@ -520,6 +520,12 @@ export function stopBleScanning(): void {
   scanning = false;
   stopDetectionUpload();
   stopBridgeProximityTimer();
+  // Clear the per-session seen-drones set + any pending fallback timers so the
+  // next scan session (or the same drone after a genuine re-approach) can alert
+  // again. Without this, notifiedUasIds never clears and a uasId seen once is
+  // silently suppressed for the app's lifetime. Covers logout too: logout
+  // unmounts LiveMapScreen, whose cleanup calls stopBleScanning.
+  resetNotifiedDrones();
   void stopForegroundService();
 }
 
