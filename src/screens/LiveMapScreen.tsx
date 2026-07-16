@@ -15,7 +15,7 @@ import { useAuthStore } from '../store/authStore';
 import { createWebSocket, api, ReconnectingWebSocket, SubscribeMessage } from '../services/api';
 import { useTheme, getDroneColor } from '../theme';
 import { OP_STATUS_AIRBORNE } from '../services/odidParser';
-import { startBleScanning, stopBleScanning } from '../services/bleScanner';
+import { startBleScanning, stopBleScanning, getBridgeInRange } from '../services/bleScanner';
 import { fetchNodes as fetchNodeRegistry, getNodeByMac } from '../services/nodeRegistry';
 import * as Location from 'expo-location';
 import { useCaps } from '../lib/useCaps';
@@ -236,6 +236,19 @@ export default function LiveMapScreen() {
       subPaused.remove();
       subResumed.remove();
     };
+  }, []);
+  // Bridge-proximity badge: a DroneScout/BlueMark bridge is broadcasting nearby
+  // (protocol-signature proximity, NOT node identity — see bleScanner). bleScanner
+  // emits on in/out-of-range transitions; we mirror it into local state for the
+  // "NODE IN RANGE" badge. Distinct from node-online / the node icon. On iOS this
+  // is the only in-range signal for a bridge whose 0x08FE identity wasn't recovered.
+  const [bridgeInRange, setBridgeInRange] = useState(getBridgeInRange());
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      'BridgeInRangeChanged',
+      (p: { inRange?: boolean }) => setBridgeInRange(!!p?.inRange),
+    );
+    return () => sub.remove();
   }, []);
   const [nodes, setNodes] = useState<any[]>([]);
   const nodesRef = useRef<any[]>([]);
@@ -1486,7 +1499,7 @@ export default function LiveMapScreen() {
           {isPassive && (
             <Text style={s.passiveBadge}>◌ PASSIVE</Text>
           )}
-          {nearbyNodeCount > 0 && (
+          {(nearbyNodeCount > 0 || bridgeInRange) && (
             <Text style={s.nodeNearby}>📡 NODE IN RANGE</Text>
           )}
         </View>
