@@ -22,6 +22,7 @@ import AddNodeScreen from '../screens/AddNodeScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import NotificationPreferencesScreen from '../screens/NotificationPreferencesScreen';
+import PartnerSharingScreen from '../screens/PartnerSharingScreen';
 import { setupNotificationListeners, consumeInitialNotificationResponse } from '../services/pushNotifications';
 import { useNotificationsStore } from '../store/notificationsStore';
 import { NavigationContainerRef } from '@react-navigation/native';
@@ -186,6 +187,10 @@ export default function AppNavigator() {
             <Stack.Screen
               name="NotificationPreferences"
               component={NotificationPreferencesScreen}
+            />
+            <Stack.Screen
+              name="PartnerSharing"
+              component={PartnerSharingScreen}
             />
           </>
         ) : (
