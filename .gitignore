@@ -45,3 +45,6 @@ ios/
 .expo/prebuild/
 .expo/xcodebuild.log
 .expo/xcodebuild-error.log
+
+# EAS build logs (local redirected output)
+eas-build-*.log
