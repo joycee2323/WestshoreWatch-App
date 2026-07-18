@@ -164,6 +164,48 @@ export const api = {
   // Orgs the current user can create/operate deployments in (home + operate
   // grants). Render the "Create in" selector only when length > 1.
   getOperableOrgs: () => request('GET', '/org-grants/operable-orgs'),
+
+  // Partner Sharing — cross-org grants management (all org-admin-only on the
+  // backend; non-admins get 403). Mirrors the dashboard's /org-grants/* client.
+  // The READ side (deployments/detections/etc.) already widens for grants
+  // automatically — these endpoints manage the grants themselves.
+  //
+  // NOTE on error handling: request() throws `new Error(err.error)` with
+  // `.status` attached — so backend error CODES arrive as `err.message`, e.g.
+  // err.message === 'user_not_found' / 'pending_invite_exists'. There is no
+  // `err.body`; branch on `err.status` + `err.message`.
+  getOutboundGrants: () => request('GET', '/org-grants/outbound'),
+  getInboundGrants: () => request('GET', '/org-grants/inbound'),
+  // Invite a partner. V1 phone flow sends level:'view', granteeType:'org'.
+  // NOT instant — the grantee must already have an account and accept an
+  // emailed token link. 404 user_not_found / 409 pending_invite_exists / 402
+  // plan gate are the notable failures.
+  inviteGrant: (data: {
+    adminEmail: string;
+    scope: 'all_deployments' | 'selected_deployments';
+    notifyGrantee?: boolean;
+    selectedDeploymentIds?: string[];
+    level?: 'view' | 'operate';
+    granteeType?: 'org' | 'user';
+  }) => request('POST', '/org-grants/invite', data),
+  // Revoke/decline/stop — one endpoint serves all three (grantor OR grantee
+  // admin). Immediate.
+  revokeGrant: (id: string) => request('POST', `/org-grants/${id}/revoke`),
+  // Edit an active view-level outbound grant's scope / notify flag.
+  patchGrant: (id: string, data: {
+    scope?: 'all_deployments' | 'selected_deployments';
+    notifyGrantee?: boolean;
+    selectedDeploymentIds?: string[];
+  }) => request('PATCH', `/org-grants/${id}`, data),
+  // Node loans (operate) — immediate/active, no accept round-trip. Org-admin
+  // path: resolve a partner-admin email to its org for confirmation, then
+  // create by email (backend re-resolves server-side). Super-admin org-dropdown
+  // path is intentionally NOT ported (org-admin email path only).
+  getNodeGrants: () => request('GET', '/org-grants/node-grants'),
+  resolveNodeGrantTarget: (email: string) =>
+    request('POST', '/org-grants/node/resolve-target', { email }),
+  createNodeGrant: (nodeId: string, adminEmail: string) =>
+    request('POST', '/org-grants/node', { nodeId, adminEmail }),
   // Org-level assignable node pool for the create form when targeting a team org.
   getOrgAssignableNodes: (orgId: string) =>
     request('GET', `/deployments/assignable-nodes?org_id=${encodeURIComponent(orgId)}`),

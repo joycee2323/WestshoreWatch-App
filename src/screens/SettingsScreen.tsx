@@ -285,6 +285,20 @@ export default function SettingsScreen() {
         </TouchableOpacity>
       )}
 
+      {/* Partner Sharing — admin-only cross-org data-sharing management. */}
+      {c.canManagePartnerSharing && (
+        <View style={s.rowCard}>
+          <SettingRow
+            colors={colors}
+            label="Partner sharing"
+            subtitle="Share data with partner orgs, lend nodes, manage grants"
+            right={<Text style={s.chevron}>›</Text>}
+            onPress={() => navigation.navigate('PartnerSharing')}
+            isLast={true}
+          />
+        </View>
+      )}
+
       {/* App info */}
       <View style={s.card}>
         <Text style={s.cardHeader}>APP INFO</Text>

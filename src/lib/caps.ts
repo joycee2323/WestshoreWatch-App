@@ -24,6 +24,7 @@ export type Caps = {
   canExport: boolean;
   canViewBilling: boolean;
   canManageUsers: boolean;
+  canManagePartnerSharing: boolean;
   canDeleteOrg: boolean;
 };
 
@@ -43,6 +44,7 @@ export function caps(user: CapsUser): Caps {
     canExport:           isOperator,
     canViewBilling:      isAdmin,
     canManageUsers:      isAdmin,
+    canManagePartnerSharing: isAdmin,
     canDeleteOrg:        isSuper,
   };
 }
