@@ -25,7 +25,7 @@ class KeepScreenOnModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun activate(promise: Promise) {
         try {
-            val activity = currentActivity
+            val activity = reactApplicationContext.currentActivity
             if (activity == null) {
                 Log.w(NAME, "activate: currentActivity is null — flag not applied")
                 promise.reject("NO_ACTIVITY", "currentActivity is null")
@@ -45,7 +45,7 @@ class KeepScreenOnModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun deactivate(promise: Promise) {
         try {
-            val activity = currentActivity
+            val activity = reactApplicationContext.currentActivity
             if (activity == null) {
                 // Benign: nothing to clear if we never had an Activity.
                 promise.resolve(null)
