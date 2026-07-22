@@ -421,6 +421,16 @@ interface CreateWebSocketOptions {
 
 const WS_URL = 'wss://api.westshoredrone.com/ws';
 const KEEPALIVE_INTERVAL_MS = 30_000;
+// Ack-gated subscribe retry. The first client→server frame after a WS upgrade
+// can be silently dropped by the edge proxy before the edge↔origin leg is
+// wired (proven against prod: the initial SUBSCRIBE_ORG left NO server-side
+// trace; a re-send ~20s later reached the backend and acked in ~50ms). A
+// single fire-and-forget subscribe would leave the socket
+// connected-but-unsubscribed. Re-send until the backend acks. Both subscribe
+// shapes are idempotent server-side. (Masked on the app by local BLE render,
+// but relayed / other-source detections have the same silent gap.)
+const SUB_RETRY_INTERVAL_MS = 2_000;
+const SUB_MAX_RETRIES = 6; // ~12s of coverage past the first-frame race
 const BACKOFF_STEPS_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
 const BACKOFF_JITTER = 0.20;
 
@@ -428,6 +438,14 @@ function nextBackoff(attempt: number): number {
   const base = BACKOFF_STEPS_MS[Math.min(attempt, BACKOFF_STEPS_MS.length - 1)];
   const jitter = base * BACKOFF_JITTER * (Math.random() * 2 - 1);
   return Math.max(250, Math.round(base + jitter));
+}
+
+// The ack the backend returns for each subscribe shape (server.js: SUBSCRIBE
+// → SUBSCRIBED, SUBSCRIBE_ORG → SUBSCRIBED_ORG). The retry loop waits for the
+// one matching the CURRENT subscribe shape, so a resubscribe mid-retry
+// re-points cleanly at the new shape's ack.
+function expectedAckFor(sub: SubscribeMessage): 'SUBSCRIBED' | 'SUBSCRIBED_ORG' {
+  return sub.type === 'SUBSCRIBE_ORG' ? 'SUBSCRIBED_ORG' : 'SUBSCRIBED';
 }
 
 // Cheap structural equality for SubscribeMessage. Used to short-circuit
@@ -457,6 +475,9 @@ export function createWebSocket(
   let attempt = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+  let subRetryTimer: ReturnType<typeof setInterval> | null = null;
+  let subscribeAcked = false;
+  let subRetries = 0;
   // Mutable so resubscribe() can swap the shape sent on each (re)connect
   // without tearing down the socket.
   let currentSubscribe: SubscribeMessage = subscribe;
@@ -466,6 +487,9 @@ export function createWebSocket(
   };
   const clearKeepalive = () => {
     if (keepaliveTimer !== null) { clearInterval(keepaliveTimer); keepaliveTimer = null; }
+  };
+  const clearSubRetry = () => {
+    if (subRetryTimer !== null) { clearInterval(subRetryTimer); subRetryTimer = null; }
   };
 
   const connect = async () => {
@@ -493,7 +517,31 @@ export function createWebSocket(
       hasEverConnected = true;
       hadUnexpectedClose = false;
 
-      socket.send(JSON.stringify(currentSubscribe));
+      // Ack-gated subscribe: re-send until the backend acks, so a dropped
+      // first frame (see SUB_RETRY_INTERVAL_MS note) can't leave us silently
+      // unsubscribed. Re-armed on every (re)connect. `onmessage` clears it.
+      subscribeAcked = false;
+      subRetries = 0;
+      clearSubRetry();
+      const sendSub = () => {
+        if (socket.readyState === WebSocket.OPEN) {
+          try { socket.send(JSON.stringify(currentSubscribe)); } catch {}
+        }
+      };
+      sendSub(); // attempt 1 — may be eaten by the post-upgrade race
+      subRetryTimer = setInterval(() => {
+        if (subscribeAcked || disposed || socket.readyState !== WebSocket.OPEN) {
+          clearSubRetry();
+          return;
+        }
+        if (subRetries >= SUB_MAX_RETRIES) {
+          clearSubRetry();
+          console.warn('[ws] subscribe never acked after retries — live feed may stay silent until reconnect');
+          return;
+        }
+        subRetries += 1;
+        sendSub();
+      }, SUB_RETRY_INTERVAL_MS);
 
       clearKeepalive();
       keepaliveTimer = setInterval(() => {
@@ -512,6 +560,14 @@ export function createWebSocket(
     socket.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
+        // Clear the subscribe-retry loop once the backend confirms the CURRENT
+        // shape's subscription. Still forwarded to onMessage (consumer ignores
+        // acks) to preserve existing behavior.
+        if (!subscribeAcked && (msg.type === 'SUBSCRIBED' || msg.type === 'SUBSCRIBED_ORG')
+            && msg.type === expectedAckFor(currentSubscribe)) {
+          subscribeAcked = true;
+          clearSubRetry();
+        }
         onMessage(msg);
       } catch {}
     };
@@ -526,6 +582,7 @@ export function createWebSocket(
       const reason = e?.reason || 'no reason given';
       console.warn(`[ws] closed: code=${code} reason=${reason}`);
       clearKeepalive();
+      clearSubRetry();
       ws = null;
 
       if (disposed) {
@@ -555,6 +612,7 @@ export function createWebSocket(
       disposed = true;
       clearReconnect();
       clearKeepalive();
+      clearSubRetry();
       statusVal = 'closed';
       if (ws && ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
         try { ws.close(1000, 'client dispose'); } catch {}
