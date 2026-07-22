@@ -97,7 +97,7 @@ class BLEScannerModule(reactContext: ReactApplicationContext) :
                 data = Uri.parse("package:$pkg")
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            val activity = currentActivity
+            val activity = reactApplicationContext.currentActivity
             if (activity != null) {
                 activity.startActivity(intent)
             } else {
