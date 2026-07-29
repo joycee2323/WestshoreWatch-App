@@ -1,6 +1,6 @@
 # Expo SDK 53 → 54 + Android API 36 — Applyable Migration Patch
 
-**Status:** review draft — nothing applied. Authored for review before execution.
+**Status:** Applied in `882b2317` (C1: bump JS deps to Expo SDK 54) + `6e059744` (fix(deps): declare babel-preset-expo so it hoists to top level). `package.json` on `master` already carries `expo ^54`, `react-native 0.81.5`, `react 19.1.0` — the plan below is historical/reference, not a to-do.
 **Repo:** `C:\dev\WestshoreWatch` · **Branch to create:** `feature/expo-54` off `master`
 **Goal:** Expo 53→54 (RN 0.79.6→0.81.5, React 19.0→19.1) + compileSdk/targetSdk 35→36, to meet Google Play's Aug 31 2026 target-API-36 deadline.
 **Constraint:** bare / prebuild-with-committed-native. `expo prebuild --clean` is BANNED (wipes committed Android `WearBridgeModule`, `BLEScannerPackage`, `KeepScreenOnPackage` and the notification native config). `ios/` is `.easignore`d and regenerated from config plugins on every EAS build, so iOS native changes apply automatically.
