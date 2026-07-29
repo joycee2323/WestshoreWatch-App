@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
-import { api } from '../services/api';
+import { api, setUnauthorizedHandler } from '../services/api';
 import { fetchNodes as fetchNodeRegistry, clearCache as clearNodeRegistry } from '../services/nodeRegistry';
 import { configureNativeUpload } from '../services/bleScanner';
 import { registerForPushNotifications, revokePushToken } from '../services/pushNotifications';
@@ -63,3 +63,23 @@ export const useAuthStore = create<AuthStore>((set) => ({
     set({ token: null, user: null });
   },
 }));
+
+// Route every 401 straight back to Login instead of leaving the app on
+// whatever screen happened to make the failing request. Previously a
+// stale/expired token (e.g. after several days idle) made getNodes() throw,
+// AppNavigator.checkNodes() caught it and set hasNodes=false, and the user
+// landed on "NO NODES REGISTERED" — indistinguishable from a real empty
+// account — with every other screen behind it also silently 401ing.
+//
+// Guarded against re-entrancy: a screen commonly fires several authed
+// requests in parallel (e.g. cold-start's getNodes + fetchNodeRegistry),
+// so a stale token can produce a burst of 401s. Only the first should
+// trigger logout(); the rest are no-ops against an already-cleared token.
+let loggingOutFromUnauthorized = false;
+setUnauthorizedHandler(() => {
+  if (loggingOutFromUnauthorized) return;
+  loggingOutFromUnauthorized = true;
+  useAuthStore.getState().logout().finally(() => {
+    loggingOutFromUnauthorized = false;
+  });
+});

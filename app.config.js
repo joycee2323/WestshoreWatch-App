@@ -2,7 +2,7 @@ module.exports = ({ config }) => ({
   expo: {
     name: 'Westshore Watch',
     slug: 'westshorewatch',
-    version: '1.1.6',
+    version: '1.1.7',
     orientation: 'default',
     icon: './assets/icon.png',
     scheme: 'westshorewatch',
@@ -16,7 +16,7 @@ module.exports = ({ config }) => ({
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.westshoredrone.watch',
-      buildNumber: '13',
+      buildNumber: '14',
       config: {
         usesNonExemptEncryption: false,
       },
@@ -52,7 +52,7 @@ module.exports = ({ config }) => ({
       // uses the gradle value. We still keep these aligned to prevent
       // future confusion when someone greps app.config.js for "what
       // version is shipping".
-      versionCode: 27,
+      versionCode: 28,
       // FCM credentials for push delivery on standalone builds. EAS
       // Build resolves GOOGLE_SERVICES_JSON (set as an EAS secret with
       // type=file) and substitutes the path; the local fallback is

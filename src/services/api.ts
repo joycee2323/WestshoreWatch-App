@@ -13,6 +13,20 @@ async function getToken(): Promise<string | null> {
   return SecureStore.getItemAsync('auth_token');
 }
 
+// Fired whenever a request comes back 401. The JWT has a server-side
+// expiry (see WestshoreWatch-Backend auth middleware); after enough idle
+// days the token stored in SecureStore is simply stale. Without this hook
+// every caller treated a 401 the same as "empty result" (see the catch
+// blocks in nodeRegistry.fetchNodes / AppNavigator.checkNodes), so an
+// expired-token user got stuck on "NO NODES REGISTERED" forever instead
+// of being routed back to Login. authStore wires this to logout() once
+// at module load — set via a setter (not a direct import) to avoid an
+// api.ts <-> authStore.ts import cycle.
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: () => void) {
+  onUnauthorized = fn;
+}
+
 // Build the X-Client-* headers once at module load. The backend uses
 // these to populate the per-user diagnostic columns in `users` (via
 // the authenticate middleware) and the matching fields on every
@@ -113,6 +127,15 @@ async function request(
     // using `billing?.` optional chaining instead of try/catch wrappers.
     if (res.status === 403 && method === 'GET' && path === '/billing/status') {
       return null;
+    }
+    // Expired/invalid JWT — the token in SecureStore is no longer good for
+    // ANY endpoint, not just this one. Kick off logout immediately (rather
+    // than letting each caller's catch block silently swallow it) so the
+    // navigator drops back to Login instead of stranding the user on a
+    // stale "no nodes" screen. Login itself never 401s, and the token is
+    // only attached when present, so this can't loop on the login request.
+    if (res.status === 401) {
+      try { onUnauthorized?.(); } catch (e) { console.warn('[api] onUnauthorized handler threw:', e); }
     }
     const err = await res.json().catch(() => ({ error: res.statusText }));
     console.warn(`API ${method} ${path} → ${res.status}:`, err);
