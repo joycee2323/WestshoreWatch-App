@@ -404,7 +404,31 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
         guard let odidData = odid else { return }
         let parsed = WSWOdidParser.parseServiceData([UInt8](odidData))
         guard let parsed = parsed else { return }
-        if parsed.uasId == "DroneScout Bridge" { return }
+        if let uasId = parsed.uasId, uasId.hasPrefix("WSW-") {
+            // Idle-node presence beacon (handle 0, legacy PDU, service-data
+            // Basic ID) — UAS_ID = "WSW-<device_id>", this node's own
+            // device_id (see firmware ble_relay.c encode_bridge_beacon()).
+            // This is a THIRD, separate advertising set from the identity
+            // beacon (handle 3, 0x08FE) and the detection advert (handle 2,
+            // 0x08FF) — CoreBluetooth may not correlate all three under the
+            // same CBPeripheral.identifier, so populate peripheralToDeviceId
+            // directly from THIS pid rather than assuming the deviceId
+            // parameter (resolved from a different advert) already covers
+            // it. This is what makes the idle beacon actually close the
+            // node-offline gap: broadcast continuously whenever no drone is
+            // live, independent of any detection. Never enters the
+            // detection/upload pipeline below — always returns here, same as
+            // the old exact-match against the third-party-compatibility
+            // "DroneScout Bridge" tag this prefix replaces.
+            let idDeviceId = String(uasId.dropFirst(4)).uppercased()
+            if idDeviceId.count == 12 {
+                stateLock.lock(); peripheralToDeviceId[pid] = idDeviceId; stateLock.unlock()
+                logOnce("idlebeacon:\(pid):\(idDeviceId)",
+                        "idle beacon device_id recovered pid=\(pid) -> \(idDeviceId)")
+                heartbeat.markNodeSeen(idDeviceId)
+            }
+            return
+        }
 
         // [diag] Pack frame attribution. attrib=MISS means the ODID advert's
         // CBPeripheral has no recovered MAC — the native heartbeat/upload then

@@ -397,7 +397,15 @@ class BLEScannerService : Service() {
         }?.value ?: return
 
         val parsed = OdidParser.parseServiceData(odidBytes) ?: return
-        if (parsed.uasId == "DroneScout Bridge") return
+        // Idle-node presence beacon (UAS_ID = "WSW-<device_id>", see firmware
+        // ble_relay.c encode_bridge_beacon()) — never a real drone. Android's
+        // heartbeat/attribution already resolves device_id reliably from the
+        // scan-layer MAC (isWestshoreWatchNode()/heartbeat?.markNodeSeen()
+        // above), independent of this content, so no further action needed
+        // here beyond keeping it out of the detection pipeline — same as the
+        // old exact-match against the third-party-compatibility "DroneScout
+        // Bridge" tag this prefix replaces.
+        if (parsed.uasId?.startsWith("WSW-") == true) return
 
         val now = SystemClock.elapsedRealtime()
 

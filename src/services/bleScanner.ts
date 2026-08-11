@@ -178,8 +178,8 @@ const operatorByUasId = new Map<string, { opLat: number; opLon: number; at: numb
 // drone: we count distinct uasIds seen via BasicId within a wide window and
 // inherit only when that count is 1. 0 or >=2 -> drop (never guess) — same
 // outcome Pack-only gives today, so we are no worse with multiple drones and
-// strictly better with one. The "DroneScout Bridge" beacon is filtered out
-// upstream (parsed.uasId === 'DroneScout Bridge' returns early), so it never
+// strictly better with one. The idle-node presence beacon is filtered out
+// upstream (parsed.uasId?.startsWith('WSW-') returns early), so it never
 // enters this set and never inflates the distinct-drone count.
 //
 // Per-source: distinct drone uasId -> last BasicId arrival time.
@@ -263,31 +263,39 @@ export function setRelayDeployment(deploymentId: string | null): void {
 }
 
 // ── Bridge-proximity badge ("NODE IN RANGE") ────────────────────────────────
-// Pure proximity: a DroneScout/BlueMark bridge is broadcasting nearby. Keys on
-// the protocol signature — the "DroneScout Bridge" BasicID beacon (constant
-// across every node and any real BlueMark bridge), which iOS receives fine over
-// 0xFFFA despite the 0x08FE device_id wall. So it means "a bridge is near", NOT
-// "this specific Westshore unit is online" — it must stay distinct from the
-// node icon's identity/online state. The badge holds for BRIDGE_PROXIMITY_TTL_MS
-// after the last beacon (longer than the ~1s rotation so it doesn't flicker),
-// then clears. Surfaced to LiveMapScreen via getBridgeInRange() +
+// Per-node presence: a Westshore node's idle beacon (UAS_ID = "WSW-<device_id>",
+// see firmware ble_relay.c encode_bridge_beacon()) is being received nearby.
+// Tracked per device_id (a Map, not a single global flag) so this is
+// genuinely node-specific — the prior version of this badge only knew "some
+// bridge is near" from a third-party-compatibility "DroneScout Bridge" tag
+// that carried no node identity at all; the "WSW-" prefix (and the device_id
+// after it) is what replaces that. getBridgeInRange() stays a simple aggregate
+// boolean (true if any node is in range) for the existing badge consumers
+// (LiveMapScreen, GuestScanScreen, both of which just want a yes/no badge);
+// getNodesInRange() exposes the actual per-node device_id list for anything
+// that wants it. Each entry holds for BRIDGE_PROXIMITY_TTL_MS after its last
+// beacon (longer than the ~1s rotation so it doesn't flicker), then is
+// evicted. Surfaced via getBridgeInRange()/getNodesInRange() +
 // 'BridgeInRangeChanged' events, mirroring the relay-target plumbing.
 const BRIDGE_PROXIMITY_TTL_MS = 8000;
-let lastBridgeBeaconAt = 0;
-let bridgeInRange = false;
+const nodesInRange = new Map<string, number>(); // device_id -> last-seen Date.now()
 let bridgeProximityTimer: ReturnType<typeof setInterval> | null = null;
 
 export function getBridgeInRange(): boolean {
-  return bridgeInRange;
+  return nodesInRange.size > 0;
 }
 
-// Marked at/before the Part 1 'DroneScout Bridge' filter — the beacon still
+export function getNodesInRange(): string[] {
+  return Array.from(nodesInRange.keys());
+}
+
+// Marked at/before the Part 1 'WSW-' idle-beacon filter — the beacon still
 // returns there, so it never enters the inheritance path or the distinct-drone
 // ambiguity count (that exclusion is load-bearing for swap protection).
-function markBridgeSeen(now: number): void {
-  lastBridgeBeaconAt = now;
-  if (!bridgeInRange) {
-    bridgeInRange = true;
+function markNodeSeen(deviceId: string, now: number): void {
+  const wasEmpty = nodesInRange.size === 0;
+  nodesInRange.set(deviceId, now);
+  if (wasEmpty) {
     DeviceEventEmitter.emit('BridgeInRangeChanged', { inRange: true });
   }
 }
@@ -295,8 +303,15 @@ function markBridgeSeen(now: number): void {
 function startBridgeProximityTimer(): void {
   if (bridgeProximityTimer) return;
   bridgeProximityTimer = setInterval(() => {
-    if (bridgeInRange && Date.now() - lastBridgeBeaconAt > BRIDGE_PROXIMITY_TTL_MS) {
-      bridgeInRange = false;
+    const now = Date.now();
+    let evicted = false;
+    for (const [deviceId, lastSeenAt] of nodesInRange) {
+      if (now - lastSeenAt > BRIDGE_PROXIMITY_TTL_MS) {
+        nodesInRange.delete(deviceId);
+        evicted = true;
+      }
+    }
+    if (evicted && nodesInRange.size === 0) {
       DeviceEventEmitter.emit('BridgeInRangeChanged', { inRange: false });
     }
   }, 1000);
@@ -307,9 +322,9 @@ function stopBridgeProximityTimer(): void {
     clearInterval(bridgeProximityTimer);
     bridgeProximityTimer = null;
   }
-  lastBridgeBeaconAt = 0;
-  if (bridgeInRange) {
-    bridgeInRange = false;
+  const hadEntries = nodesInRange.size > 0;
+  nodesInRange.clear();
+  if (hadEntries) {
     DeviceEventEmitter.emit('BridgeInRangeChanged', { inRange: false });
   }
 }
@@ -356,14 +371,22 @@ export async function startBleScanning(
     const parsed = parseOdidAdvertisement(mac, rssi, serviceData);
     if (!parsed) return;
 
-    if (parsed.uasId === 'DroneScout Bridge') {
-      // Proximity badge only, and iOS-only — this is an iOS feature (the 0x08FE
-      // device_id wall); Android ships on its own release train and keeps its
-      // existing OUI-MAC nearbyNodeCount path untouched. Read presence here,
-      // then STILL return (unconditionally) — the bridge beacon must never enter
-      // the drone-detection / inheritance path or the distinct-drone ambiguity
-      // count (Part 1's exclusion stays intact on both platforms).
-      if (Platform.OS === 'ios') markBridgeSeen(now);
+    if (parsed.uasId && parsed.uasId.startsWith('WSW-')) {
+      // Idle-node presence beacon — UAS_ID = "WSW-<device_id>", this node's own
+      // device_id (see firmware ble_relay.c encode_bridge_beacon()). The
+      // "WSW-" prefix is unambiguous: no real drone's Remote ID UAS_ID will
+      // ever start with it, replacing the old exact-match against a
+      // third-party-compatibility "DroneScout Bridge" tag that carried no
+      // node identity. STILL return unconditionally — this must never enter
+      // the drone-detection / inheritance path or the distinct-drone
+      // ambiguity count (Part 1's exclusion stays intact on both platforms).
+      // Proximity badge is iOS-only, same as before — Android ships on its
+      // own release train and keeps its existing OUI-MAC nearbyNodeCount path
+      // untouched.
+      if (Platform.OS === 'ios') {
+        const deviceId = parsed.uasId.slice(4).toUpperCase();
+        if (deviceId.length === 12) markNodeSeen(deviceId, now);
+      }
       return;
     }
 
