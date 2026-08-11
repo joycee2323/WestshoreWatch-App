@@ -25,18 +25,26 @@ import os
 //  • NO MAC ADDRESS. CoreBluetooth never exposes a peripheral's hardware MAC,
 //    only a per-app-randomized CBPeripheral.identifier (a UUID). Android keys
 //    every node operation on the MAC (deviceId = MAC, OUI check). We recover the
-//    node MAC from the node's own identity advertisement: the firmware's
-//    company-0x08FE manufacturer-data payload is [MAC(6)][api_key prefix]
-//    (firmware/ble_relay.c handle 3). We extract those 6 bytes and map
-//    peripheral.identifier -> MAC. Until a peripheral has been seen advertising
-//    its identity, we cannot know its deviceId, so native upload/heartbeat for
-//    that peripheral is deferred (the BLEScanResult is still emitted to JS, so
-//    the live map — which keys on uasId, not node MAC — works regardless).
-//    NEEDS VERIFICATION: that the ODID relay advert and the identity advert
-//    arrive from the SAME CBPeripheral.identifier. If the firmware uses separate
-//    advertising sets with independent random addresses, the correlation breaks
-//    and a different scheme (e.g. embedding the node MAC in the ODID payload) is
-//    required.
+//    node deviceId two ways, either of which populates peripheralToDeviceId:
+//      1. (preferred, firmware ≥ device_id stamping) the detection advert
+//         itself carries the node's own device_id as a JSON field — company
+//         0x08FF, format_json_compact()'s "device_id" key (firmware/output.c).
+//         Arrives on the SAME advert as the detection data, so it doesn't
+//         depend on the independent identity-beacon timer having already
+//         fired for this peripheral.
+//      2. (fallback, older firmware) the node's own identity advertisement:
+//         company-0x08FE manufacturer-data payload is [MAC(6)][api_key prefix]
+//         (firmware/ble_relay.c handle 3). We extract those 6 bytes and map
+//         peripheral.identifier -> MAC.
+//    Until a peripheral has been seen via either path, we cannot know its
+//    deviceId, so native upload/heartbeat for that peripheral is deferred (the
+//    BLEScanResult is still emitted to JS, so the live map — which keys on
+//    uasId, not node MAC — works regardless).
+//    NEEDS VERIFICATION (path 2 / older firmware only): that the ODID relay
+//    advert and the identity advert arrive from the SAME CBPeripheral.identifier.
+//    Path 1 has no such dependency — device_id and the detection data arrive on
+//    the same advert by construction, so updated firmware sidesteps this risk
+//    entirely.
 //
 //  • BACKGROUND SCANNING is heavily throttled by iOS and requires a service-UUID
 //    filter; allowDuplicates is ignored in the background. We scan with
@@ -55,6 +63,10 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
     private static let odidServiceUUID = CBUUID(string: "FFFA")
     private static let odidServiceUUIDFull = "0000fffa-0000-1000-8000-00805f9b34fb"
     private static let westshoreCompanyId: UInt16 = 0x08FE
+    // Detection advert (handle 2, DET_ADV_HANDLE) company id — format_json_compact()'s
+    // compact JSON, now carrying an always-present "device_id" field. See the
+    // iOS PLATFORM CONSTRAINTS note above.
+    private static let westshoreDetectionCompanyId: UInt16 = 0x08FF
     private static let odidMsgPack = 0xF
     private static let attributionTTLSec: TimeInterval = 0.200
     private static let bleSilenceThresholdSec: TimeInterval = 30
@@ -282,6 +294,26 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
                 stateLock.lock(); peripheralToDeviceId[pid] = mac; stateLock.unlock()
                 nodeDeviceId = mac
                 logOnce("id:\(pid):\(mac)", "identity recovered pid=\(pid) -> mac=\(mac)")
+            }
+
+            // Recover device_id from the detection advert itself (company
+            // 0x08FF) when present — the preferred path, see the iOS PLATFORM
+            // CONSTRAINTS note above. Populates the SAME peripheralToDeviceId
+            // cache the 0x08FE identity path uses, so heartbeat.markNodeSeen
+            // and maybeEnqueueForUpload below benefit without further change.
+            // Silently no-ops on older firmware whose JSON has no "device_id"
+            // key, leaving the 0x08FE path as the only source for that node.
+            var alreadyKnown = false
+            stateLock.lock(); alreadyKnown = (peripheralToDeviceId[pid] != nil); stateLock.unlock()
+            if companyId == WSWBLEScanner.westshoreDetectionCompanyId, !alreadyKnown, mfg.count > 2 {
+                let jsonBytes = mfg.subdata(in: 2..<mfg.count)
+                if let obj = try? JSONSerialization.jsonObject(with: jsonBytes) as? [String: Any],
+                   let raw = obj["device_id"] as? String, raw.count == 12 {
+                    let mac = raw.uppercased()
+                    stateLock.lock(); peripheralToDeviceId[pid] = mac; stateLock.unlock()
+                    nodeDeviceId = mac
+                    logOnce("detid:\(pid):\(mac)", "device_id recovered from detection advert pid=\(pid) -> \(mac)")
+                }
             }
         }
         if nodeDeviceId == nil {
