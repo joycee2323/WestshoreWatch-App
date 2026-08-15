@@ -2,11 +2,12 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { useColorScheme, Platform, View, ActivityIndicator } from 'react-native';
+import { Platform, View, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useAuthStore } from '../store/authStore';
+import { useThemeStore } from '../store/themeStore';
 import { useTheme } from '../theme';
 import { api } from '../services/api';
 
@@ -122,14 +123,15 @@ function MainGate() {
 }
 
 export default function AppNavigator() {
-  const scheme = useColorScheme();
+  const mode = useThemeStore(s => s.mode);
+  const loadThemeMode = useThemeStore(s => s.loadMode);
   const { token, isLoading, loadToken } = useAuthStore();
   const colors = useTheme();
   const navRef = React.useRef<NavigationContainerRef<any>>(null);
   const [navReady, setNavReady] = useState(false);
   const incrementUnread = useNotificationsStore(s => s.incrementUnread);
 
-  useEffect(() => { loadToken(); }, []);
+  useEffect(() => { loadToken(); void loadThemeMode(); }, []);
 
   // Push notification listeners are mounted while authenticated so a
   // tapped notification can deep-link via the navigation tree. Foreground
@@ -165,7 +167,7 @@ export default function AppNavigator() {
     );
   }
 
-  const navTheme = scheme === 'dark'
+  const navTheme = mode === 'dark'
     ? { ...DarkTheme, colors: { ...DarkTheme.colors, background: colors.bg, card: colors.surface, border: colors.border, primary: colors.cyan, text: colors.text, notification: colors.red } }
     : { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: colors.bg, card: colors.surface, border: colors.border, primary: colors.cyan, text: colors.text, notification: colors.red } };
 

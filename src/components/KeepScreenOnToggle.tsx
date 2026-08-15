@@ -102,6 +102,18 @@ export default function KeepScreenOnToggle({ keepAwakeTag }: Props) {
   );
 }
 
+// Small local hex->rgba helper — the active-state highlight wants a
+// translucent tint of the theme's green, and colors.green differs by
+// theme (dark vs light palette), so a static rgba(0,255,136,...) literal
+// would go invisible/wrong-hued under the light palette.
+function withAlpha(hex: string, alpha: number): string {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   btn: {
     flexDirection: 'column',
@@ -112,12 +124,12 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderColor: c.border2,
+    backgroundColor: c.surface2,
   },
   btnActive: {
-    borderColor: 'rgba(0,255,136,0.4)',
-    backgroundColor: 'rgba(0,255,136,0.12)',
+    borderColor: withAlpha(c.green, 0.4),
+    backgroundColor: withAlpha(c.green, 0.12),
   },
   label: {
     fontSize: 8,

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Alert, Platform, ActivityIndicator,
+  Alert, Platform, ActivityIndicator, Switch,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -13,6 +13,7 @@ import ChangePasswordScreen from './ChangePasswordScreen';
 import DeleteAccountScreen from './DeleteAccountScreen';
 import { api } from '../services/api';
 import { useTheme } from '../theme';
+import { useThemeStore } from '../store/themeStore';
 import { caps } from '../lib/caps';
 import { useNotificationsStore } from '../store/notificationsStore';
 import { getLastRegistrationStatus, registerForPushNotifications } from '../services/pushNotifications';
@@ -29,6 +30,8 @@ const TERMS_URL = 'https://watch.westshoredrone.com/terms';
 
 export default function SettingsScreen() {
   const colors = useTheme();
+  const themeMode = useThemeStore(s => s.mode);
+  const setThemeMode = useThemeStore(s => s.setMode);
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { user, logout } = useAuthStore();
@@ -305,6 +308,22 @@ export default function SettingsScreen() {
         <Row label="VERSION" value="1.0.0" colors={colors} />
         <Row label="BACKEND" value="watch.westshoredrone.com" colors={colors} />
         <Row label={Platform.OS === 'android' ? 'BLE SCANNING' : 'DETECTION SOURCE'} value={Platform.OS === 'android' ? 'Active' : 'Connected nodes'} colors={colors} />
+      </View>
+
+      {/* Appearance — manual dark/light override. Field use often means bright
+          sunlight, where the dark theme's low-contrast surfaces are hard to
+          read; light mode trades the night-ops look for daytime legibility. */}
+      <View style={s.card}>
+        <Text style={s.cardHeader}>APPEARANCE</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text style={s.value}>Dark Mode</Text>
+          <Switch
+            value={themeMode === 'dark'}
+            onValueChange={v => setThemeMode(v ? 'dark' : 'light')}
+            trackColor={{ false: colors.border2, true: colors.cyan }}
+            thumbColor={Platform.OS === 'android' ? colors.surface : undefined}
+          />
+        </View>
       </View>
 
       {/* Notifications */}

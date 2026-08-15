@@ -1,4 +1,4 @@
-import { useColorScheme } from 'react-native';
+import { useThemeStore } from '../store/themeStore';
 
 export const darkColors = {
   bg: '#0a0e1a',
@@ -33,8 +33,8 @@ export const lightColors = {
 };
 
 export function useTheme() {
-  const scheme = useColorScheme();
-  return scheme === 'dark' ? darkColors : lightColors;
+  const mode = useThemeStore(s => s.mode);
+  return mode === 'dark' ? darkColors : lightColors;
 }
 
 export const DRONE_COLORS = [
