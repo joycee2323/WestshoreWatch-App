@@ -1668,7 +1668,7 @@ export default function LiveMapScreen() {
                   {[
                     ['MODEL', modelDisplay],
                     ['POSITION', dLat != null ? `${Number(dLat).toFixed(6)}, ${Number(dLon).toFixed(6)}` : '—'],
-                    ['ALTITUDE', dAlt != null ? `${fmtAltitude(dAlt)} MSL` : '—'],
+                    ['ALTITUDE', dAlt != null ? `${fmtAltitude(dAlt)} HAE` : '—'],
                     ['SPEED', fmtSpeed(dSpeed)],
                     ['OPERATOR', dOpLat != null ? `${Number(dOpLat).toFixed(6)}, ${Number(dOpLon).toFixed(6)}` : '—'],
                     ['NODE', nodeName],

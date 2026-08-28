@@ -352,7 +352,7 @@ export default function GuestScanScreen({ navigation }: any) {
               <>
                 <View style={s.detailGrid}>
                   <DetailRow label="POSITION" value={fmtCoord(liveDrone.lat, liveDrone.lon)} />
-                  <DetailRow label="ALTITUDE" value={liveDrone.altGeo != null ? `${fmtAltitude(liveDrone.altGeo)} MSL` : '—'} />
+                  <DetailRow label="ALTITUDE" value={liveDrone.altGeo != null ? `${fmtAltitude(liveDrone.altGeo)} HAE` : '—'} />
                   <DetailRow label="SPEED" value={fmtSpeed(liveDrone.speedHoriz)} />
                   <DetailRow label="HEADING" value={liveDrone.heading != null ? `${Math.round(liveDrone.heading)}°` : '—'} />
                   <DetailRow label="OPERATOR" value={fmtCoord(liveDrone.opLat, liveDrone.opLon)} />
