@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import KeepScreenOnToggle from '../components/KeepScreenOnToggle';
 import KeepScreenActiveModal from '../components/KeepScreenActiveModal';
+import RelayTargetModal from '../components/RelayTargetModal';
 import DetectionLimitedBanner from '../components/DetectionLimitedBanner';
 import { useScanActiveWarning } from '../hooks/useScanActiveWarning';
 import { useRelayTarget } from '../hooks/useRelayTarget';
@@ -201,7 +202,7 @@ export default function LiveMapScreen() {
   // ambiguity, clear when none. Sets relayDeploymentId in bleScanner, which gates
   // enqueueDetectionUpload → /api/deployments/:id/detections. Distinct from the
   // view scope below.
-  useRelayTarget(activeDeployments, orgId);
+  const relayTarget = useRelayTarget(activeDeployments, orgId);
 
   // Which deployment the map is currently SCOPED to (display + node fetch +
   // WS subscription + drone render all derive from this). 'ALL' = every
@@ -1571,6 +1572,13 @@ export default function LiveMapScreen() {
 
       {/* iOS: one-time "keep screen active" warning on first entry. */}
       <KeepScreenActiveModal storageKey="seenMapWarning_liveMap" />
+
+      {/* Which-deployment-to-relay-to prompt, shown on genuine ambiguity. */}
+      <RelayTargetModal
+        candidates={relayTarget.promptCandidates}
+        onSelect={relayTarget.choosePrompt}
+        onCancel={relayTarget.dismissPrompt}
+      />
 
       {/* Selected drone sheet */}
       {selectedDrone && (() => {

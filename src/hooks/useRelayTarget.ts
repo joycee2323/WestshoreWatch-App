@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, DeviceEventEmitter } from 'react-native';
+import { DeviceEventEmitter } from 'react-native';
 import { api } from '../services/api';
 import { setRelayDeployment } from '../services/bleScanner';
 
@@ -20,6 +20,11 @@ import { setRelayDeployment } from '../services/bleScanner';
 //
 // Guests / add-node screens never mount this hook, so they never set a relay
 // target and never upload.
+//
+// On genuine ambiguity, returns `promptCandidates` for the caller to render
+// via <RelayTargetModal>, plus `choosePrompt`/`dismissPrompt` handlers —
+// rather than showing an Alert.alert directly (Android's native AlertDialog
+// only exposes 3 button slots, so a 4th+ deployment silently disappeared).
 export function useRelayTarget(activeDeployments: any[], ownOrgId: string | undefined) {
   // Orgs the user can operate (post) in. Fail-closed to empty on error: the
   // own-org check below still lets a plain user relay to their home org.
@@ -32,6 +37,13 @@ export function useRelayTarget(activeDeployments: any[], ownOrgId: string | unde
   // Signature of the candidate set we last prompted for, so an ambiguous set
   // prompts ONCE rather than on every activeDeployments refresh.
   const promptedSigRef = useRef<string | null>(null);
+
+  // Candidates for the "which deployment" prompt, or null when no prompt is
+  // showing. Rendered by the caller via <RelayTargetModal>. A real Modal
+  // (not Alert.alert) because Android's native AlertDialog only exposes 3
+  // button slots — a 4th+ deployment, or even the cancel button, would
+  // silently vanish with no scroll and no way to back out.
+  const [promptCandidates, setPromptCandidates] = useState<{ id: string; name?: string }[] | null>(null);
 
   // Deployments the server rejected for upload (403/404). Excluded from
   // candidates for the session so a single-candidate set can't auto-re-pick a
@@ -84,18 +96,21 @@ export function useRelayTarget(activeDeployments: any[], ownOrgId: string | unde
     // Persist a still-valid prior choice across refreshes.
     if (chosenRef.current && candidates.some((d: any) => d.id === chosenRef.current)) {
       promptedSigRef.current = null;
+      setPromptCandidates(null);
       return;
     }
 
     if (candidates.length === 0) {
       apply(null);
       promptedSigRef.current = null;
+      setPromptCandidates(null);
       return;
     }
 
     if (candidates.length === 1) {
       apply(candidates[0].id);
       promptedSigRef.current = null;
+      setPromptCandidates(null);
       return;
     }
 
@@ -105,18 +120,21 @@ export function useRelayTarget(activeDeployments: any[], ownOrgId: string | unde
     const sig = candidates.map((d: any) => d.id).sort().join(',');
     if (promptedSigRef.current === sig) return;
     promptedSigRef.current = sig;
-
-    Alert.alert(
-      'Relay detections to which deployment?',
-      'This phone can relay drone detections to one active deployment. Choose where its detections should be recorded.',
-      [
-        ...candidates.map((d: any) => ({
-          text: d.name ?? d.id,
-          onPress: () => apply(d.id),
-        })),
-        // Stay un-targeted; we re-prompt if the candidate set changes.
-        { text: 'Not now', style: 'cancel' as const },
-      ],
-    );
+    setPromptCandidates(candidates.map((d: any) => ({ id: d.id, name: d.name })));
   }, [activeDeployments, isPostScoped, apply, rejectedTick]);
+
+  // Called by <RelayTargetModal> when the operator taps a deployment.
+  const choosePrompt = useCallback((id: string) => {
+    apply(id);
+    setPromptCandidates(null);
+  }, [apply]);
+
+  // Called on "Not now", backdrop tap, or Android back button. Stays
+  // un-targeted; we re-prompt only if the candidate set changes (guarded by
+  // promptedSigRef above), so dismissing doesn't loop the prompt back open.
+  const dismissPrompt = useCallback(() => {
+    setPromptCandidates(null);
+  }, []);
+
+  return { promptCandidates, choosePrompt, dismissPrompt };
 }
