@@ -500,12 +500,11 @@ class BLEScannerService : Service() {
 
     // Monochrome status-bar notification icon (white crosshair on transparent),
     // shared with the expo-notifications default via @drawable/notification_icon.
-    // Resolved by name so this compiles even in a checkout where the drawable
-    // hasn't been generated yet; falls back to the launcher icon if truly absent.
-    private fun notificationIconRes(): Int {
-        val id = resources.getIdentifier("notification_icon", "drawable", packageName)
-        return if (id != 0) id else applicationInfo.icon
-    }
+    // Direct R.drawable reference (not a getIdentifier() string lookup) so this
+    // resource is statically reachable — a dynamic lookup by name is invisible
+    // to R8's resource shrinker and can get the drawable stripped as
+    // "unreferenced" once shrinkResources is enabled.
+    private fun notificationIconRes(): Int = R.drawable.notification_icon
 
     private fun startForegroundWithNotification() {
         Log.d(TAG, "startForegroundWithNotification: begin")
