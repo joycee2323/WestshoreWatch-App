@@ -140,7 +140,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     color: c.cyan, fontSize: 10, letterSpacing: 1.5, fontWeight: '700',
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
-  listContent: { flexGrow: 1, alignItems: 'center', maxWidth: 600, width: '100%', alignSelf: 'center' },
+  listContent: { flexGrow: 1, maxWidth: 600, width: '100%', alignSelf: 'center' },
   row: {
     flexDirection: 'row', alignItems: 'flex-start',
     paddingHorizontal: 16, paddingVertical: 14,
