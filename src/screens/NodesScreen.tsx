@@ -239,11 +239,7 @@ export default function NodesScreen() {
   return (
     <ScrollView
       style={s.page}
-      contentContainerStyle={{
-        padding: 16,
-        paddingTop: 16 + (insets.top || 0),
-        paddingBottom: 40,
-      }}
+      contentContainerStyle={[s.body, { paddingTop: 16 + (insets.top || 0) }]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.cyan} />}
     >
       <View style={s.headerRow}>
@@ -447,12 +443,16 @@ function NodeDetail({ label, value, valueColor }: { label: string; value: string
 
 const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   page: { flex: 1, backgroundColor: c.bg },
+  body: { padding: 16, paddingBottom: 40, alignItems: 'center', maxWidth: 600, width: '100%', alignSelf: 'center' },
   title: {
     color: c.text, fontSize: 18, fontWeight: '700', letterSpacing: 4,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace', marginBottom: 4,
   },
   subtitle: { color: c.textMuted, fontSize: 11, marginBottom: 16 },
-  headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  headerRow: {
+    flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between',
+    width: '100%', maxWidth: 600,
+  },
   addBtn: {
     borderWidth: 1, borderColor: c.cyan, borderRadius: 6,
     paddingHorizontal: 12, paddingVertical: 7,
@@ -465,6 +465,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   card: {
     backgroundColor: c.surface, borderRadius: 12,
     borderWidth: 1, padding: 16, marginBottom: 12,
+    width: '100%', maxWidth: 600,
   },
   cardOnline: { borderColor: 'rgba(0,255,136,0.2)' },
   cardOffline: { borderColor: c.border },

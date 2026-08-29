@@ -123,8 +123,11 @@ export default function OnboardingScreen({ onRefresh, refreshing, onSkip }: Prop
 
 const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   page: { flex: 1, backgroundColor: c.bg },
-  content: { flexGrow: 1, padding: 28, justifyContent: 'center' },
-  header: { alignItems: 'center', marginBottom: 48 },
+  content: {
+    flexGrow: 1, padding: 28, justifyContent: 'center', alignItems: 'center',
+    maxWidth: 480, width: '100%', alignSelf: 'center',
+  },
+  header: { alignItems: 'center', marginBottom: 48, width: '100%' },
   logo: {
     fontSize: 28, fontWeight: '700', letterSpacing: 6,
     color: c.cyan,
@@ -138,6 +141,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     backgroundColor: c.surface,
     borderWidth: 1, borderColor: c.border,
     borderRadius: 12, padding: 24,
+    width: '100%', maxWidth: 480,
   },
   heading: {
     color: c.text, fontSize: 16, fontWeight: '700', letterSpacing: 3,
@@ -207,7 +211,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   skipSub: { color: c.textMuted, fontSize: 10, marginTop: 4 },
   hint: {
     color: c.textMuted, fontSize: 10, letterSpacing: 1,
-    textAlign: 'center', marginTop: 32,
+    textAlign: 'center', marginTop: 32, width: '100%',
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
   signOutBtn: {

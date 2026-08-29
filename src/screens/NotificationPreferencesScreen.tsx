@@ -94,7 +94,7 @@ export default function NotificationPreferencesScreen() {
           <ActivityIndicator color={colors.cyan} />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+        <ScrollView contentContainerStyle={s.body}>
           {SECTIONS.map(section => (
             <View key={section.heading} style={s.section}>
               <Text style={s.sectionHeader}>{section.heading}</Text>
@@ -141,12 +141,14 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   },
   spacer: { width: 22 },
   loading: { paddingVertical: 60, alignItems: 'center' },
+  body: { padding: 16, paddingBottom: 40, alignItems: 'center', maxWidth: 600, width: '100%', alignSelf: 'center' },
   section: {
     backgroundColor: c.surface,
     borderRadius: 12,
     borderWidth: 1, borderColor: c.border,
     marginBottom: 16,
     overflow: 'hidden',
+    width: '100%', maxWidth: 600,
   },
   sectionHeader: {
     color: c.textMuted, fontSize: 9, letterSpacing: 2,

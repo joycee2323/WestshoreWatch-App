@@ -205,7 +205,7 @@ export default function AddNodeScreen() {
     // platform explanation; Android keeps the role-gate message.
     const isIos = Platform.OS === 'ios';
     return (
-      <ScrollView style={s.page} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+      <ScrollView style={s.page} contentContainerStyle={s.body}>
         <Text style={s.title}>ADD NODE</Text>
         <View style={s.empty}>
           <Text style={s.emptyText}>{isIos ? 'PAIRING UNAVAILABLE' : 'READ-ONLY'}</Text>
@@ -225,7 +225,7 @@ export default function AddNodeScreen() {
   return (
     <ScrollView
       style={s.page}
-      contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+      contentContainerStyle={s.body}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={colors.cyan} />
       }
@@ -281,15 +281,18 @@ export default function AddNodeScreen() {
 
 const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   page: { flex: 1, backgroundColor: c.bg },
+  body: { padding: 16, paddingBottom: 40, alignItems: 'center', maxWidth: 600, width: '100%', alignSelf: 'center' },
   title: {
     color: c.text, fontSize: 18, fontWeight: '700', letterSpacing: 4,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace', marginBottom: 4,
+    width: '100%',
   },
-  subtitle: { color: c.textMuted, fontSize: 11, marginBottom: 16 },
+  subtitle: { color: c.textMuted, fontSize: 11, marginBottom: 16, width: '100%' },
   card: {
     backgroundColor: c.surface, borderRadius: 12,
     borderWidth: 1, borderColor: 'rgba(0,212,255,0.2)',
     padding: 16, marginBottom: 12,
+    width: '100%', maxWidth: 600,
   },
   cardDisabled: { opacity: 0.5 },
   cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -305,7 +308,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     color: c.cyan, fontSize: 11, fontWeight: '700', letterSpacing: 2,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
-  empty: { alignItems: 'center', paddingTop: 60, gap: 16 },
+  empty: { alignItems: 'center', paddingTop: 60, gap: 16, width: '100%' },
   emptyText: {
     color: c.textMuted, fontSize: 12, letterSpacing: 3,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',

@@ -144,7 +144,7 @@ export default function PartnerSharingScreen() {
       ) : (
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+          contentContainerStyle={s.body}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.cyan} />
           }
@@ -831,6 +831,7 @@ const MONO = Platform.OS === 'ios' ? 'Courier New' : 'monospace';
 
 const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   page: { flex: 1, backgroundColor: c.bg },
+  body: { padding: 16, paddingBottom: 40, alignItems: 'center', maxWidth: 600, width: '100%', alignSelf: 'center' },
   header: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 16, paddingBottom: 12,
@@ -858,12 +859,14 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
 
   primaryBtn: {
     backgroundColor: c.cyan, borderRadius: 8, padding: 14, alignItems: 'center', marginBottom: 14,
+    width: '100%', maxWidth: 600,
   },
   primaryBtnText: { color: '#000', fontWeight: '700', fontSize: 12, letterSpacing: 2, fontFamily: MONO },
 
   card: {
     backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border,
     padding: 16, marginBottom: 12,
+    width: '100%', maxWidth: 600,
   },
   rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   partnerName: { flex: 1, color: c.text, fontSize: 14, fontWeight: '600', fontFamily: MONO },
@@ -887,6 +890,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   sectionHeaderRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     marginTop: 24, marginBottom: 10,
+    width: '100%', maxWidth: 600,
   },
   sectionLabel: { color: c.textMuted, fontSize: 9, letterSpacing: 2, fontFamily: MONO },
   sectionAction: { color: c.cyan, fontSize: 10, letterSpacing: 1.5, fontWeight: '700', fontFamily: MONO },
@@ -896,6 +900,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   modalCard: {
     backgroundColor: c.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     maxHeight: '92%', borderTopWidth: 1, borderColor: c.border2,
+    width: '100%', maxWidth: 600, marginHorizontal: 'auto',
   },
   modalHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

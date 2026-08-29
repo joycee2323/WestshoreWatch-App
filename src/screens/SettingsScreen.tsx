@@ -216,11 +216,7 @@ export default function SettingsScreen() {
   return (
     <ScrollView
       style={s.page}
-      contentContainerStyle={{
-        padding: 16,
-        paddingTop: 16 + (insets.top || 0),
-        paddingBottom: 40,
-      }}
+      contentContainerStyle={[s.body, { paddingTop: 16 + (insets.top || 0) }]}
     >
       <Text style={s.title}>ACCOUNT</Text>
 
@@ -522,13 +518,16 @@ function SettingRow({
 
 const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   page: { flex: 1, backgroundColor: c.bg },
+  body: { padding: 16, paddingBottom: 40, alignItems: 'center', maxWidth: 600, width: '100%', alignSelf: 'center' },
   title: {
     color: c.text, fontSize: 18, fontWeight: '700', letterSpacing: 4,
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace', marginBottom: 16,
+    width: '100%',
   },
   card: {
     backgroundColor: c.surface, borderRadius: 12,
     borderWidth: 1, borderColor: c.border, padding: 16, marginBottom: 12,
+    width: '100%', maxWidth: 600,
   },
   cardHeader: {
     color: c.textMuted, fontSize: 9, letterSpacing: 2, marginBottom: 10,
@@ -552,6 +551,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     marginBottom: 12, borderWidth: 1, borderColor: 'rgba(0,212,255,0.4)',
     borderRadius: 10, padding: 16, alignItems: 'center',
     backgroundColor: 'rgba(0,212,255,0.08)',
+    width: '100%', maxWidth: 600,
   },
   upgradeBtnText: {
     color: '#00d4ff', fontSize: 13, fontWeight: '700', letterSpacing: 2,
@@ -561,6 +561,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     marginBottom: 12, borderWidth: 1, borderColor: 'rgba(168,85,247,0.4)',
     borderRadius: 10, padding: 16, alignItems: 'center',
     backgroundColor: 'rgba(168,85,247,0.08)',
+    width: '100%', maxWidth: 600,
   },
   adminBtnText: {
     color: '#a855f7', fontSize: 13, fontWeight: '700', letterSpacing: 2,
@@ -569,11 +570,13 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   changePasswordBtn: {
     backgroundColor: 'transparent', borderWidth: 1, borderColor: c.cyan,
     borderRadius: 8, padding: 16, alignItems: 'center', marginBottom: 12,
+    width: '100%', maxWidth: 600,
   },
   rowCard: {
     backgroundColor: c.surface, borderRadius: 12,
     borderWidth: 1, borderColor: c.border,
     marginBottom: 12, overflow: 'hidden',
+    width: '100%', maxWidth: 600,
   },
   chevron: {
     color: c.textMuted, fontSize: 22, fontWeight: '400',
@@ -600,6 +603,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     marginTop: 8, borderWidth: 1, borderColor: c.red,
     borderRadius: 10, padding: 16, alignItems: 'center',
     backgroundColor: 'rgba(239,68,68,0.08)',
+    width: '100%', maxWidth: 600,
   },
   logoutText: {
     color: c.red, fontSize: 13, fontWeight: '700', letterSpacing: 2,
@@ -607,6 +611,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   },
   deleteAccountBtn: {
     marginTop: 14, paddingVertical: 12, alignItems: 'center',
+    width: '100%', maxWidth: 600,
   },
   deleteAccountText: {
     color: c.red, fontSize: 12, fontWeight: '700', letterSpacing: 2,

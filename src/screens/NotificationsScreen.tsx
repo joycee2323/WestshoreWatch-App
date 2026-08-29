@@ -88,6 +88,7 @@ export default function NotificationsScreen() {
         data={notifications}
         keyExtractor={n => n.id}
         renderItem={renderItem}
+        contentContainerStyle={s.listContent}
         ItemSeparatorComponent={() => <View style={s.sep} />}
         ListEmptyComponent={
           loading ? (
@@ -139,12 +140,14 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     color: c.cyan, fontSize: 10, letterSpacing: 1.5, fontWeight: '700',
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
+  listContent: { flexGrow: 1, alignItems: 'center', maxWidth: 600, width: '100%', alignSelf: 'center' },
   row: {
     flexDirection: 'row', alignItems: 'flex-start',
     paddingHorizontal: 16, paddingVertical: 14,
     backgroundColor: c.surface,
+    width: '100%', maxWidth: 600,
   },
-  sep: { height: 1, backgroundColor: c.border, marginLeft: 40 },
+  sep: { height: 1, backgroundColor: c.border, marginLeft: 40, width: '100%', maxWidth: 600 },
   dotCol: { width: 24, alignItems: 'center', paddingTop: 6 },
   unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: c.cyan },
   dotPlaceholder: { width: 8, height: 8 },
@@ -152,7 +155,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   title: { color: c.textDim, fontSize: 13, fontWeight: '600', marginBottom: 2 },
   body: { color: c.textMuted, fontSize: 12, lineHeight: 16 },
   ts: { color: c.textMuted, fontSize: 10, letterSpacing: 0.5, marginTop: 6, marginLeft: 8 },
-  empty: { paddingVertical: 60, alignItems: 'center' },
+  empty: { paddingVertical: 60, alignItems: 'center', width: '100%' },
   emptyText: { color: c.textMuted, fontSize: 13 },
-  footer: { paddingVertical: 16, alignItems: 'center' },
+  footer: { paddingVertical: 16, alignItems: 'center', width: '100%' },
 });
