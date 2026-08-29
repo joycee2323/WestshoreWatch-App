@@ -381,6 +381,21 @@ export async function consumeInitialNotificationResponse(navigation: any): Promi
   try {
     const response = await Notifications.getLastNotificationResponseAsync();
     if (!response) return;
+    // getLastNotificationResponseAsync() keeps returning this SAME response
+    // on every future call until explicitly cleared — without this, a tap
+    // handled here (or deduped below, already handled by the runtime
+    // listener) would replay on every subsequent cold start, including
+    // hitting deepLinkForNotification's default case (-> Notifications
+    // screen) even on launches with no real notification tap at all.
+    // Cleared unconditionally, before the dedup check, so both remaining
+    // paths through this function (deduped-skip and handle-and-deep-link)
+    // clear it. Failure here is logged, not fatal — the deep link below
+    // still fires even if the clear itself fails.
+    try {
+      await Notifications.clearLastNotificationResponseAsync();
+    } catch (clearErr) {
+      console.warn('[push] clearLastNotificationResponseAsync failed:', clearErr);
+    }
     if (!shouldHandleResponse(response)) return;
     const data = response?.notification?.request?.content?.data || {};
     deepLinkForNotification(navigation, data);
