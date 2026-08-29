@@ -100,8 +100,8 @@ packagingOptions {
         applicationId 'com.westshoredrone.watch'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 32
-        versionName "1.1.10"
+        versionCode 33
+        versionName "1.1.11"
     }
     signingConfigs {
         debug {
