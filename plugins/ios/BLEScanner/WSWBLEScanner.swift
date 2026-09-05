@@ -430,6 +430,25 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
             return
         }
 
+        // Legacy self-ID literal — current X1/M1 firmware still advertises this
+        // exact UAS_ID for third-party Remote-ID-app compatibility (NOT a drone;
+        // must stay as firmware ships it). Older than the "WSW-" prefix beacon
+        // above, so it isn't caught there, and it carries no device_id to
+        // recover. Defense-in-depth: this native path has no cross-frame
+        // inheritance for legacy Location/System frames (the else-branch below
+        // drops those when parsed.uasId is nil), so a standalone BasicId
+        // carrying this literal cannot leak into a later frame's attribution
+        // here today. The one path that COULD still carry it into a
+        // position-bearing upload is a self-identifying Pack (msgType 0xF)
+        // whose own BasicId sub-message uses this literal alongside a real
+        // Location sub-message — firmware-controlled content, not something
+        // this file can rule out by construction — so guard it explicitly
+        // regardless of what position fields such a frame carries, mirroring
+        // bleScanner.ts's identical guard.
+        if parsed.uasId == "DroneScout Bridge" {
+            return
+        }
+
         // [diag] Pack frame attribution. attrib=MISS means the ODID advert's
         // CBPeripheral has no recovered MAC — the native heartbeat/upload then
         // can't fire (this is the offline-node failure). Compare the pid here

@@ -390,6 +390,26 @@ export async function startBleScanning(
       return;
     }
 
+    // Legacy self-ID literal — current X1/M1 firmware still advertises this
+    // exact UAS_ID for third-party Remote-ID-app compatibility (NOT a drone;
+    // must stay as firmware ships it). Older than the "WSW-" prefix beacon
+    // above, so it isn't caught by that check, and it carries no device_id to
+    // recover. It MUST return here, before sourceMacUpper/attribution below:
+    // a standalone BasicId frame has no lat/lon (parseBasicId sets neither),
+    // so it can never itself become a position-bearing detection, but if left
+    // to fall through it still gets recorded into recentBasicIdsBySource. A
+    // same-source relayed Location/System frame with no in-frame uasId (e.g.
+    // a DJI drone behind this bridge, real position, BasicId relay lagging
+    // behind Location per the ~1Hz rotation noted below) can then inherit
+    // this literal via the single-candidate ambiguity gate in liveBasicIds,
+    // producing a real-position detection misattributed to "DroneScout
+    // Bridge" instead of dropped or correctly attributed. Dropping it here
+    // keeps it out of that inheritance pool entirely, matching how the
+    // WSW- beacon above is excluded.
+    if (parsed.uasId === 'DroneScout Bridge') {
+      return;
+    }
+
     const sourceMacUpper = mac.toUpperCase();
 
     // Attribute the uasId. Three paths:
@@ -485,7 +505,19 @@ export async function startBleScanning(
     // detection has no Westshore node MAC, so the native uploader never gets it.
     // When this phone has a relay target set, push position-bearing detections
     // to the node-less upload path. No target -> no upload (map still works).
+    //
+    // isRecognizedNode uses the persistent discoveredNodes map rather than the
+    // per-event isNode flag above: isNode is derived from THIS event's
+    // manufacturerData, which is absent on ODID relay/detection adverts (they
+    // carry only FFFA service data) — so it's false on exactly the events that
+    // matter here. discoveredNodes accumulates across events for a given mac,
+    // so it stays true once the node's 0x08FE identity advert has been seen.
+    // Without this guard, a detection relayed through a recognized Westshore
+    // node was ALSO posted here with node_id = NULL (see api.ts:
+    // deploymentDetections), which is what left "Detected By" blank on iOS.
+    const isRecognizedNode = discoveredNodes.has(sourceMacUpper);
     if (
+      !isRecognizedNode &&
       relayDeploymentId &&
       typeof parsed.lat === 'number' &&
       typeof parsed.lon === 'number' &&
@@ -517,8 +549,8 @@ export async function startBleScanning(
     // works: an upload WAS attempted, the push doesn't return, the 8s fallback
     // fires. notifyNewDrone dedups per-uasId, so calling it on every qualifying
     // frame still notifies at most once per drone per session.
-    const nodeLessUploadAttempted = !!relayDeploymentId && hasPosition;
-    const nativeUploadAttempted = isNode && hasPosition;
+    const nodeLessUploadAttempted = !isRecognizedNode && !!relayDeploymentId && hasPosition;
+    const nativeUploadAttempted = isRecognizedNode && hasPosition;
     if (nodeLessUploadAttempted || nativeUploadAttempted) {
       void notifyNewDrone(effectiveUasId);
     }
