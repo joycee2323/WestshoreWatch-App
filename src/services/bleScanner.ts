@@ -485,7 +485,19 @@ export async function startBleScanning(
     // detection has no Westshore node MAC, so the native uploader never gets it.
     // When this phone has a relay target set, push position-bearing detections
     // to the node-less upload path. No target -> no upload (map still works).
+    //
+    // isRecognizedNode uses the persistent discoveredNodes map rather than the
+    // per-event isNode flag above: isNode is derived from THIS event's
+    // manufacturerData, which is absent on ODID relay/detection adverts (they
+    // carry only FFFA service data) — so it's false on exactly the events that
+    // matter here. discoveredNodes accumulates across events for a given mac,
+    // so it stays true once the node's 0x08FE identity advert has been seen.
+    // Without this guard, a detection relayed through a recognized Westshore
+    // node was ALSO posted here with node_id = NULL (see api.ts:
+    // deploymentDetections), which is what left "Detected By" blank on iOS.
+    const isRecognizedNode = discoveredNodes.has(sourceMacUpper);
     if (
+      !isRecognizedNode &&
       relayDeploymentId &&
       typeof parsed.lat === 'number' &&
       typeof parsed.lon === 'number' &&
@@ -517,8 +529,8 @@ export async function startBleScanning(
     // works: an upload WAS attempted, the push doesn't return, the 8s fallback
     // fires. notifyNewDrone dedups per-uasId, so calling it on every qualifying
     // frame still notifies at most once per drone per session.
-    const nodeLessUploadAttempted = !!relayDeploymentId && hasPosition;
-    const nativeUploadAttempted = isNode && hasPosition;
+    const nodeLessUploadAttempted = !isRecognizedNode && !!relayDeploymentId && hasPosition;
+    const nativeUploadAttempted = isRecognizedNode && hasPosition;
     if (nodeLessUploadAttempted || nativeUploadAttempted) {
       void notifyNewDrone(effectiveUasId);
     }
