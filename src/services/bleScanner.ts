@@ -390,6 +390,26 @@ export async function startBleScanning(
       return;
     }
 
+    // Legacy self-ID literal — current X1/M1 firmware still advertises this
+    // exact UAS_ID for third-party Remote-ID-app compatibility (NOT a drone;
+    // must stay as firmware ships it). Older than the "WSW-" prefix beacon
+    // above, so it isn't caught by that check, and it carries no device_id to
+    // recover. It MUST return here, before sourceMacUpper/attribution below:
+    // a standalone BasicId frame has no lat/lon (parseBasicId sets neither),
+    // so it can never itself become a position-bearing detection, but if left
+    // to fall through it still gets recorded into recentBasicIdsBySource. A
+    // same-source relayed Location/System frame with no in-frame uasId (e.g.
+    // a DJI drone behind this bridge, real position, BasicId relay lagging
+    // behind Location per the ~1Hz rotation noted below) can then inherit
+    // this literal via the single-candidate ambiguity gate in liveBasicIds,
+    // producing a real-position detection misattributed to "DroneScout
+    // Bridge" instead of dropped or correctly attributed. Dropping it here
+    // keeps it out of that inheritance pool entirely, matching how the
+    // WSW- beacon above is excluded.
+    if (parsed.uasId === 'DroneScout Bridge') {
+      return;
+    }
+
     const sourceMacUpper = mac.toUpperCase();
 
     // Attribute the uasId. Three paths:
