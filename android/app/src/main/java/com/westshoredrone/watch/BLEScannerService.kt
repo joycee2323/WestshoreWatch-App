@@ -53,6 +53,18 @@ class BLEScannerService : Service() {
     private data class Attribution(val uasId: String, val lastBasicIdAtMs: Long)
     private val attributionBySource = java.util.concurrent.ConcurrentHashMap<String, Attribution>()
 
+    // sourceMac (uppercased) -> elapsedRealtime ms when its 0x08FE identity
+    // advert (handle 3) was last seen. Mirrors src/services/bleScanner.ts's
+    // discoveredNodes Map: each BLE extended-advertising handle is a SEPARATE
+    // PDU/ScanResult, so a Pack or legacy detection frame (handle 1/0) never
+    // itself carries handle 3's manufacturer-specific data — without this
+    // cache, isWestshoreWatchNode() only recognized a MAC via the hardcoded
+    // legacy OUI fallback, silently dropping every detection from any node
+    // outside that allowlist (confirmed 2026-09-11: node 10:BD:A3:C8:40:C6).
+    // Populated in isWestshoreWatchNode() itself so every call site (heartbeat
+    // presence check + upload gate) refreshes it for free.
+    private val recognizedNodeCache = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     @Volatile
     private var lastPacketElapsedMs: Long = 0L
 
@@ -449,7 +461,15 @@ class BLEScannerService : Service() {
         }
 
         if (effectiveUasId == null) return
-        if (!isWestshoreWatchNode(sourceMacUpper, record)) return
+        if (!isWestshoreWatchNode(sourceMacUpper, record)) {
+            // Previously silent — this is exactly how the 2026-09-11 gap
+            // (node 10:BD:A3:C8:40:C6, valid Skydio detection parsed and
+            // ready to upload, dropped here with zero trace) went unnoticed.
+            Log.w(TAG,
+                "detection DROPPED — unrecognized node mac=$sourceMacUpper " +
+                "msgType=${parsed.msgType} uasId=$effectiveUasId lat=${parsed.lat} lon=${parsed.lon}")
+            return
+        }
 
         val lat = parsed.lat ?: return
         val lon = parsed.lon ?: return
@@ -473,12 +493,36 @@ class BLEScannerService : Service() {
     }
 
     private fun isWestshoreWatchNode(macUpper: String, record: ScanRecord?): Boolean {
-        // Identity advert (handle 3) carries manufacturer-specific data under
-        // company 0x08FE. Its presence IS the recognition signal — no payload-
-        // length gating. Fallback to the legacy OUI allowlist for older fleet
-        // and for adverts that don't carry the identity block (e.g. detection
-        // advert, ODID relay).
-        if (record?.getManufacturerSpecificData(WESTSHORE_COMPANY_ID) != null) return true
+        // Primary signal: THIS packet carries the identity advert (handle 3,
+        // manufacturer-specific data under company 0x08FE). Its presence IS
+        // the recognition signal — no payload-length gating. Refresh the
+        // recognition cache so a LATER packet from this MAC that carries no
+        // manufacturer data of its own (Pack/legacy detection frames on
+        // handles 1/0 — the common case) is still recognized below.
+        if (record?.getManufacturerSpecificData(WESTSHORE_COMPANY_ID) != null) {
+            recognizedNodeCache[macUpper] = SystemClock.elapsedRealtime()
+            return true
+        }
+
+        // Secondary signal: this MAC's identity advert was seen recently.
+        // This is now the primary path in practice for any node whose MAC
+        // isn't in the legacy OUI allowlist below (i.e. all newer hardware) —
+        // see recognizedNodeCache's header comment for why a per-packet-only
+        // check silently dropped these.
+        val lastSeenElapsedMs = recognizedNodeCache[macUpper]
+        if (lastSeenElapsedMs != null) {
+            if (SystemClock.elapsedRealtime() - lastSeenElapsedMs <= NODE_RECOGNITION_TTL_MS) {
+                return true
+            }
+            // Expired — prune. Conditional remove so we don't clobber a
+            // fresher write that raced in from another scan callback.
+            recognizedNodeCache.remove(macUpper, lastSeenElapsedMs)
+        }
+
+        // Fallback: legacy hardcoded OUI allowlist, kept for backward
+        // compatibility with pre-0x08FE fleet (nodes that never send an
+        // identity advert at all, so the cache above can never populate for
+        // them).
         return macUpper.startsWith("98:A3:16:7D") || macUpper.startsWith("38:44:BE")
     }
 
@@ -584,6 +628,24 @@ class BLEScannerService : Service() {
         // as a discovery signature here — the app does not read the api_key
         // bytes.
         private const val WESTSHORE_COMPANY_ID = 0x08FE
+        // TTL for recognizedNodeCache (see field comment). The identity
+        // advert repeats every 500ms while the node is live (500ms interval,
+        // configure_id_advertiser in ble_relay.c) — this TTL isn't tuned to
+        // that cadence, it's tuned to survive GAPS in reception without
+        // re-treating a still-present node as unrecognized: scanner self-heal
+        // restarts (stopScan/startScan, BLE_RESTART_DELAY_MS + controller
+        // settle time), Android's own scan batching/coalescing under
+        // SCAN_MODE_BALANCED, and brief RF occlusion (the node's antenna
+        // orientation, a body in the way) that would drop the identity advert
+        // specifically while Pack/legacy detection frames still get through.
+        // Minutes-scale, not seconds: too short reintroduces this exact bug
+        // (a transient identity-advert gap silently un-recognizes the node
+        // right when a detection frame needs it); too long just means a
+        // genuinely-departed node stays "recognized" a bit longer, which is
+        // low-cost — recognition alone doesn't upload anything, enqueue()
+        // still requires a freshly parsed uasId + valid position from that
+        // same detection frame.
+        private const val NODE_RECOGNITION_TTL_MS = 10 * 60 * 1000L  // 10 minutes
         private const val CHANNEL_ID = "westshore_ble_scanner_v2"
         private const val NOTIFICATION_ID = 4471
         private const val WAKE_LOCK_TAG = "WestshoreWatch::BLEScannerService"
