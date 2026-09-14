@@ -721,6 +721,25 @@ export default function LiveMapScreen() {
     }, [runFocusCentering])
   );
 
+  // Cold-launch race fix: on first mount, useFocusEffect's very first firing
+  // happens as soon as the screen is focused — which, with LiveMap as the
+  // initial tab, is immediately, before permissionResolved has flipped true
+  // and before MapView/Camera have even rendered. runFocusCentering's own
+  // `!cameraRef.current` guard makes that first firing a no-op, and since
+  // its useFocusEffect callback has stable (never-changing) deps, it never
+  // gets a second chance without an actual focus transition — a user who
+  // opens the app and stays on this tab would see the camera never move.
+  // This effect re-runs runFocusCentering the one time permissionResolved
+  // actually flips true (cameraRef is guaranteed populated by then), without
+  // adding permissionResolved to the useFocusEffect's own deps — that would
+  // make it re-fire the whole proximity/chain logic on every dependency
+  // change while focused, exactly the jank this session already fixed once.
+  useEffect(() => {
+    if (permissionResolved) {
+      void runFocusCentering();
+    }
+  }, [permissionResolved, runFocusCentering]);
+
   // Helper used by both mode helpers below: ensures the WS is connected
   // and either resubscribes the existing socket to a new shape (cheap,
   // no socket teardown) or opens a fresh one with the given shape if
