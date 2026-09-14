@@ -2,12 +2,5 @@
   <string name="app_name">Westshore Watch</string>
   <string name="expo_splash_screen_resize_mode" translatable="false">contain</string>
   <string name="expo_splash_screen_status_bar_translucent" translatable="false">false</string>
-  <!-- Sentinel value, not a literal version — the 'fingerprint' runtimeVersion
-       policy can only be resolved at build time. This tells expo-updates'
-       native module (UpdatesConfiguration.kt) to read the actual hash from
-       the `fingerprint` asset generated at every Android build by the
-       expo-updates Gradle plugin, which useExpoModules() autolinking (see
-       android/settings.gradle) applies automatically — no manual build.gradle
-       wiring needed. -->
-  <string name="expo_runtime_version" translatable="false">file:fingerprint</string>
+  <string name="expo_runtime_version">file:fingerprint</string>
 </resources>
