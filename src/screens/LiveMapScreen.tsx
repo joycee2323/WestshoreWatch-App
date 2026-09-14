@@ -740,6 +740,20 @@ export default function LiveMapScreen() {
     }
   }, [permissionResolved, runFocusCentering]);
 
+  // Same class of gap, different trigger: picking a deployment on an
+  // already-focused Live Map (no tab-switch involved) doesn't produce a
+  // focus transition either, so useFocusEffect's stable callback never
+  // re-runs for it. Re-run once whenever selectedDeploymentId settles on an
+  // actual selection ('ALL' or a specific id) — not on the initial null
+  // (passive/no-selection) state, and not folded into the focus effect's
+  // own deps for the same jank-prevention reason as the permissionResolved
+  // effect above.
+  useEffect(() => {
+    if (selectedDeploymentId != null) {
+      void runFocusCentering();
+    }
+  }, [selectedDeploymentId, runFocusCentering]);
+
   // Helper used by both mode helpers below: ensures the WS is connected
   // and either resubscribes the existing socket to a new shape (cheap,
   // no socket teardown) or opens a fresh one with the given shape if

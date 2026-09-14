@@ -46,6 +46,16 @@ module.exports = ({ config }) => ({
     // a republish on every version bump, not just native ones.
     updates: {
       url: 'https://u.expo.dev/f40c2ea3-94c9-4552-a71a-bedb70251ba9',
+      // Without this, the installed app sends update-check requests with no
+      // channel declared at all — with three branches (development/preview/
+      // production) on this project, the server has nothing to resolve
+      // against, so published updates silently never apply on any platform.
+      // Normally written by `eas update:configure` or picked up by
+      // `expo prebuild` from this exact field; neither ran for this repo's
+      // committed (non-regenerated) android/, so it was never present there,
+      // and since ios/ is also generated from this file, iOS was missing it
+      // too even though its native dir gets rebuilt every cloud build.
+      requestHeaders: { 'expo-channel-name': 'production' },
     },
     icon: './assets/icon.png',
     scheme: 'westshorewatch',
@@ -59,7 +69,7 @@ module.exports = ({ config }) => ({
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.westshoredrone.watch',
-      buildNumber: '23',
+      buildNumber: '24',
       runtimeVersion: { policy: 'fingerprint' },
       config: {
         usesNonExemptEncryption: false,
@@ -97,7 +107,7 @@ module.exports = ({ config }) => ({
       // uses the gradle value. We still keep these aligned to prevent
       // future confusion when someone greps app.config.js for "what
       // version is shipping".
-      versionCode: 38,
+      versionCode: 39,
       // FCM credentials for push delivery on standalone builds. EAS
       // Build resolves GOOGLE_SERVICES_JSON (set as an EAS secret with
       // type=file) and substitutes the path; the local fallback is
