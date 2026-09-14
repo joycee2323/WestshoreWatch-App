@@ -4,6 +4,7 @@ import {
   Alert, Platform, ActivityIndicator, Switch,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Constants from 'expo-constants';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuthStore } from '../store/authStore';
 import BillingScreen from './BillingScreen';
@@ -27,6 +28,19 @@ import { WearBridge } from '../native/WearBridge';
 const MANUAL_URL_FALLBACK = 'https://api.westshoredrone.com/docs/westshore-watch-instruction-manual.pdf';
 const PRIVACY_URL = 'https://watch.westshoredrone.com/privacy';
 const TERMS_URL = 'https://watch.westshoredrone.com/terms';
+
+// nativeApplicationVersion/nativeBuildVersion read the actual compiled
+// native values (versionName+versionCode on Android, CFBundleShortVersionString
+// +CFBundleVersion on iOS) — same pattern as the X-Client-Version/-Build
+// headers in services/api.ts. NOT Constants.expoConfig?.version: that's the
+// JS-config value, which can now diverge from what's actually installed
+// once OTA updates (expo-updates) are shipping JS-only changes without a
+// new native build. Static per app session, computed once at module load.
+const nativeVersion = Constants.nativeApplicationVersion;
+const nativeBuild = Constants.nativeBuildVersion;
+const APP_VERSION_DISPLAY = nativeVersion
+  ? (nativeBuild ? `${nativeVersion} (${nativeBuild})` : nativeVersion)
+  : 'Unknown';
 
 export default function SettingsScreen() {
   const colors = useTheme();
@@ -301,7 +315,7 @@ export default function SettingsScreen() {
       {/* App info */}
       <View style={s.card}>
         <Text style={s.cardHeader}>APP INFO</Text>
-        <Row label="VERSION" value="1.0.0" colors={colors} />
+        <Row label="VERSION" value={APP_VERSION_DISPLAY} colors={colors} />
         <Row label="BACKEND" value="watch.westshoredrone.com" colors={colors} />
         <Row label={Platform.OS === 'android' ? 'BLE SCANNING' : 'DETECTION SOURCE'} value={Platform.OS === 'android' ? 'Active' : 'Connected nodes'} colors={colors} />
       </View>
