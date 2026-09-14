@@ -4,6 +4,15 @@ module.exports = ({ config }) => ({
     slug: 'westshorewatch',
     version: '1.2.1',
     orientation: 'default',
+    // 'fingerprint' hashes app deps, config plugins (incl. the local
+    // withBleScanner/withFmtConstevalFix files by content), and patches/ —
+    // so it correctly reflects this repo's custom native surface without
+    // relying on someone remembering to bump `version` on every native
+    // change.
+    runtimeVersion: { policy: 'fingerprint' },
+    updates: {
+      url: 'https://u.expo.dev/f40c2ea3-94c9-4552-a71a-bedb70251ba9',
+    },
     icon: './assets/icon.png',
     scheme: 'westshorewatch',
     userInterfaceStyle: 'automatic',
