@@ -4,12 +4,31 @@ module.exports = ({ config }) => ({
     slug: 'westshorewatch',
     version: '1.2.2',
     orientation: 'default',
-    // 'fingerprint' hashes app deps, config plugins (incl. the local
-    // withBleScanner/withFmtConstevalFix files by content), and patches/ —
-    // so it correctly reflects this repo's custom native surface without
-    // relying on someone remembering to bump `version` on every native
-    // change.
-    runtimeVersion: { policy: 'fingerprint' },
+    // Per-platform runtimeVersion (android./ios.runtimeVersion each override
+    // this key on their own platform — see @expo/config-types' ExpoConfig).
+    // No top-level fallback needed since both platforms set their own.
+    //
+    // iOS stays on 'fingerprint': ios/ is gitignored and fully regenerated
+    // by EAS on every cloud build, so it isn't affected by the problem below.
+    //
+    // Android is pinned to 'appVersion' instead of 'fingerprint'. EAS
+    // Build's "Prepare credentials" phase (remote/EAS-managed Android
+    // signing) writes a real release signingConfig into the COMMITTED
+    // android/app/build.gradle before the fingerprint check runs — a change
+    // that can never be reproduced on a local machine (the keystore only
+    // exists in EAS's credential store) and can't be excluded from
+    // fingerprint.config.js's ignorePaths without also hiding genuinely
+    // native-relevant content in that file (ndkVersion, packagingOptions,
+    // the dependencies block). That makes local-vs-EAS fingerprints for
+    // Android structurally unable to match, independent of any git state —
+    // confirmed against real build logs. 'appVersion' sidesteps it: it
+    // resolves to just android.version/version (versionName), which this
+    // repo already bumps in lockstep with versionCode on every native change
+    // (see git log). Tradeoff: OTA compatibility on Android is now scoped to
+    // the marketing version string only, not actual native content — an
+    // update published under one `version` is never offered to a build on a
+    // different `version`, even if nothing native actually changed, so
+    // Android needs a republish on every version bump, not just native ones.
     updates: {
       url: 'https://u.expo.dev/f40c2ea3-94c9-4552-a71a-bedb70251ba9',
     },
@@ -26,6 +45,7 @@ module.exports = ({ config }) => ({
       supportsTablet: true,
       bundleIdentifier: 'com.westshoredrone.watch',
       buildNumber: '22',
+      runtimeVersion: { policy: 'fingerprint' },
       config: {
         usesNonExemptEncryption: false,
       },
@@ -48,6 +68,7 @@ module.exports = ({ config }) => ({
       },
     },
     android: {
+      runtimeVersion: { policy: 'appVersion' },
       adaptiveIcon: {
         foregroundImage: './assets/adaptive-icon.png',
         backgroundColor: '#0a0e1a',
