@@ -32,6 +32,41 @@ const NICKNAME_MAX = 30;
 // the app sees per session, which is small in practice.
 const loggedSkippedUasIds = new Set<string>();
 
+// Radius within which the operator's phone GPS is considered "at" an online
+// node, for focus-driven camera centering. Bounded by the X1/M1 offline
+// threshold (120s) and typical operator movement during a live deployment —
+// see runFocusCentering below.
+const GPS_SNAP_RADIUS_M = 300;
+const EARTH_RADIUS_M = 6371000;
+
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(a));
+}
+
+// Nearest online node with coords within radiusM of (lat, lon), or null.
+// Works uniformly for portable nodes (last_lat/lon IS the relaying phone's
+// own GPS — NodeHeartbeatUploader posts it every 30s), cellular X1s (their
+// own onboard GPS on the same heartbeat cadence), and Sentinels (dashboard-
+// set, static — matches only when the operator is actually on-site).
+function findNearbyNode(nodeList: any[], lat: number, lon: number, radiusM: number): any | null {
+  let best: any = null;
+  let bestDist = Infinity;
+  for (const n of nodeList) {
+    if (n?.status !== 'online' || n?.last_lat == null || n?.last_lon == null) continue;
+    const d = haversineMeters(lat, lon, n.last_lat, n.last_lon);
+    if (d <= radiusM && d < bestDist) {
+      bestDist = d;
+      best = n;
+    }
+  }
+  return best;
+}
+
 // Backend serializes Postgres NUMERIC lat/lon as strings via the `pg` driver.
 // Android RN Mapbox coerces silently; iOS strict-decodes Doubles via Codable
 // and rejects strings ("Expected to decode Double but found a string"). The
@@ -111,9 +146,9 @@ export default function LiveMapScreen() {
         lat: typeof p?.targetLat === 'number' ? p.targetLat : undefined,
         lon: typeof p?.targetLon === 'number' ? p.targetLon : undefined,
       };
-      // Suppress the one-time default centering below — a notification focus
-      // owns the camera from here on.
-      hasInitiallyCenteredRef.current = true;
+      // runFocusCentering (below) reads focusRequestRef/lastFocusNonceRef
+      // itself to detect this unconsumed request and skip — no separate
+      // suppression flag needed here.
       setFocusTick(x => x + 1);
     }
   }, [route.params]);
@@ -283,11 +318,15 @@ export default function LiveMapScreen() {
   }, []);
 
   const [selectedDrone, setSelectedDrone] = useState<any>(null);
+  const selectedDroneRef = useRef<any>(null);
+  useEffect(() => { selectedDroneRef.current = selectedDrone; }, [selectedDrone]);
   const [sheetCollapsed, setSheetCollapsed] = useState(false);
   // A notification-focus target whose drone isn't in the store yet (live-only,
   // not arrived via WS). The store watcher below snaps + selects it when it
   // lands; a bounded timer clears it so a late arrival never yanks the camera.
   const [pendingFocus, setPendingFocus] = useState<{ deploymentId: string; uasId: string } | null>(null);
+  const pendingFocusRef = useRef<{ deploymentId: string; uasId: string } | null>(null);
+  useEffect(() => { pendingFocusRef.current = pendingFocus; }, [pendingFocus]);
   const pendingFocusTimer = useRef<any>(null);
   // Set by the drone marker's onPress so a tap that hits a feature doesn't
   // also fire the MapView's onPress and immediately clear the selection.
@@ -303,6 +342,8 @@ export default function LiveMapScreen() {
   // local state because passive mode pulls all-of-org nodes, distinct
   // from active mode's per-deployment list.
   const [passiveNodes, setPassiveNodes] = useState<any[]>([]);
+  const passiveNodesRef = useRef<any[]>([]);
+  useEffect(() => { passiveNodesRef.current = passiveNodes; }, [passiveNodes]);
   const passivePollTimer = useRef<any>(null);
   const PASSIVE_RECENCY_MIN = 5;
   const PASSIVE_POLL_MS = 30_000;
@@ -569,48 +610,116 @@ export default function LiveMapScreen() {
     }
   };
 
-  // Initial camera centering. Replaces the auto-follow-user behavior that
-  // <Camera followUserLocation> used to provide before user-location was
-  // removed in versionCode 9 (see TODO in render JSX below). Fires once on
-  // first opportunity; the ref-guard prevents re-centering when data
-  // arrives later. Priority:
-  //   1. selectedDrone (rare at mount; covers the case where the user
-  //      navigated in with a drone already selected via deep-link)
-  //   2. first online node with coords (typical case for operators with
-  //      deployed nodes)
-  //   3. Cleveland-area fallback (deployment record has no center field;
-  //      Westshore Drone Services operates out of NE Ohio)
-  const hasInitiallyCenteredRef = useRef(false);
-  useEffect(() => {
-    if (hasInitiallyCenteredRef.current) return;
+  // Focus-driven camera centering. Replaces the auto-follow-user behavior
+  // that <Camera followUserLocation> used to provide before user-location
+  // was removed in versionCode 9 (see TODO in render JSX below). Runs on
+  // EVERY screen focus (not just first mount) via useFocusEffect below —
+  // deliberately, so re-opening the tab re-evaluates from scratch rather
+  // than staying pinned to wherever the camera happened to land on the
+  // first-ever visit. A manual pan/zoom is therefore not sticky across a
+  // tab-away-and-back; that's an accepted tradeoff of "snap on open."
+  //
+  // Sequence per focus:
+  //   1. Skip entirely if a notification deep-link owns the camera this
+  //      cycle (an unconsumed focusRequestRef entry) or a pending-focus
+  //      drone-arrival wait is in flight — see focusDrone below.
+  //   2. Proximity: is the operator's phone within GPS_SNAP_RADIUS_M of an
+  //      online node? Snap to THAT NODE's coords (not the raw phone GPS) —
+  //      cached position first for an instant snap, then a fresh fix to
+  //      correct it. See findNearbyNode's header comment for why this
+  //      works uniformly across portable/cellular/Sentinel nodes.
+  //   3. If no node is within range (or permission is denied), fall
+  //      through to the original priority chain: selectedDrone -> first
+  //      online node with coords (from passiveNodes in passive mode,
+  //      nodes otherwise) -> Cleveland-area fallback (Westshore Drone
+  //      Services operates out of NE Ohio).
+  const snapCameraTo = useCallback((lon: number, lat: number, zoomLevel: number, animationDuration: number) => {
+    if (!cameraRef.current) return;
+    try {
+      cameraRef.current.setCamera({ centerCoordinate: [lon, lat], zoomLevel, animationDuration });
+    } catch (err) {
+      console.warn('[livemap] focus camera snap failed:', err);
+    }
+  }, []);
+
+  const applyDefaultCenter = useCallback(() => {
+    const selDrone = selectedDroneRef.current;
+    if (selDrone?.last_lat && selDrone?.last_lon) {
+      snapCameraTo(selDrone.last_lon, selDrone.last_lat, 14, 0);
+      return;
+    }
+    // Passive mode has no `nodes` (cleared on entering passive — see
+    // enterPassiveMode); fall back within passiveNodes (org-wide) there
+    // instead of skipping straight to the Cleveland fallback.
+    const nodeList = currentActiveIdsRef.current.length === 0 ? passiveNodesRef.current : nodesRef.current;
+    const onlineNode = nodeList.find((n: any) => n.status === 'online' && n.last_lat && n.last_lon);
+    if (onlineNode) {
+      snapCameraTo(onlineNode.last_lon, onlineNode.last_lat, 14, 0);
+      return;
+    }
+    snapCameraTo(-81.6944, 41.4993, 14, 0);
+  }, [snapCameraTo]);
+
+  // All inputs read via refs (never as closure-captured render values) and
+  // both useCallbacks below carry stable (never-changing) dependencies —
+  // deliberately, so the useFocusEffect wrapping this only re-runs on a
+  // real focus transition, never merely because nodes/selectedDrone
+  // changed while the screen is already focused (which would otherwise
+  // fight a manual pan mid-visit with a surprise re-snap).
+  const runFocusCentering = useCallback(async () => {
+    const req = focusRequestRef.current;
+    if (req && req.nonce !== lastFocusNonceRef.current) return; // notification owns this cycle
+    if (pendingFocusRef.current) return; // awaiting a notification-targeted drone to arrive
     if (!cameraRef.current) return;
 
-    let center: [number, number] | null = null;
-
-    if (selectedDrone?.last_lat && selectedDrone?.last_lon) {
-      center = [selectedDrone.last_lon, selectedDrone.last_lat];
-    } else {
-      const onlineNode = nodes.find(n =>
-        n.status === 'online' && n.last_lat && n.last_lon);
-      if (onlineNode) {
-        center = [onlineNode.last_lon, onlineNode.last_lat];
-      } else {
-        // Cleveland-area fallback (downtown Cleveland coords).
-        center = [-81.6944, 41.4993];
-      }
+    let permGranted = false;
+    try {
+      const perm = await Location.requestForegroundPermissionsAsync();
+      permGranted = perm.status === 'granted';
+    } catch (err) {
+      console.warn('[livemap] focus location permission check failed:', err);
     }
+    if (!permGranted) {
+      applyDefaultCenter();
+      return;
+    }
+
+    // Passive mode has no `nodes` (cleared on entering passive — see
+    // enterPassiveMode); compare against passiveNodes there instead.
+    const nodeList = currentActiveIdsRef.current.length === 0 ? passiveNodesRef.current : nodesRef.current;
+
+    let matched = false;
+    try {
+      const cached = await Location.getLastKnownPositionAsync();
+      if (cached) {
+        const near = findNearbyNode(nodeList, cached.coords.latitude, cached.coords.longitude, GPS_SNAP_RADIUS_M);
+        if (near) {
+          snapCameraTo(near.last_lon, near.last_lat, 15, 0);
+          matched = true;
+        }
+      }
+    } catch (err) {
+      console.warn('[livemap] cached location read failed:', err);
+    }
+
+    // No cached proximity match — show the existing chain now rather than
+    // leaving the camera unset while the fresh GPS fix (below) is pending.
+    if (!matched) applyDefaultCenter();
 
     try {
-      cameraRef.current.setCamera({
-        centerCoordinate: center,
-        zoomLevel: 14,
-        animationDuration: 0,
-      });
-      hasInitiallyCenteredRef.current = true;
+      const fresh = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const near = findNearbyNode(nodeList, fresh.coords.latitude, fresh.coords.longitude, GPS_SNAP_RADIUS_M);
+      if (near) snapCameraTo(near.last_lon, near.last_lat, 15, 500);
     } catch (err) {
-      console.warn('[livemap] initial camera centering failed:', err);
+      console.warn('[livemap] fresh location read failed:', err);
     }
-  }, [nodes, selectedDrone, permissionResolved]);
+  }, [applyDefaultCenter, snapCameraTo]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void runFocusCentering();
+    }, [runFocusCentering])
+  );
 
   // Helper used by both mode helpers below: ensures the WS is connected
   // and either resubscribes the existing socket to a new shape (cheap,
