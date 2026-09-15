@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AppNavigator from './src/navigation/AppNavigator';
 import { initDroneNotifications } from './src/services/droneNotifier';
 import { configureNotificationHandler, setupAndroidChannels } from './src/services/pushNotifications';
+import { checkAndApplyUpdateAsync } from './src/services/otaUpdates';
 import { KEEP_SCREEN_ON_STORAGE_KEY } from './src/components/KeepScreenOnToggle';
 
 // Foreground handler must be registered before any notification
@@ -42,6 +43,18 @@ export default function App() {
     ...Ionicons.font,
   });
 
+  // Runs the full OTA check -> fetch -> reload cycle before the app's UI
+  // ever renders, alongside font loading — see services/otaUpdates.ts for
+  // why (collapses expo-updates' native two-cold-launch apply behavior
+  // into one launch). Bounded by its own internal timeouts and never
+  // throws, so this can only ever ADD to the splash duration, never hang
+  // it. If it does reload into a new bundle, that happens here, before
+  // the user has seen any UI — not a disruptive mid-session reload.
+  const [updateCheckDone, setUpdateCheckDone] = useState(false);
+  useEffect(() => {
+    void checkAndApplyUpdateAsync().finally(() => setUpdateCheckDone(true));
+  }, []);
+
   useEffect(() => {
     void migrateKeepScreenOnKey();
     void initDroneNotifications();
@@ -55,7 +68,7 @@ export default function App() {
 
   // Fail open: if the font load errors, still render the app (with
   // missing icons) rather than stranding users on the splash screen.
-  if (!fontsLoaded && !fontError) {
+  if (!updateCheckDone || (!fontsLoaded && !fontError)) {
     return null;
   }
 
