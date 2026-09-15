@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AppNavigator from './src/navigation/AppNavigator';
 import { initDroneNotifications } from './src/services/droneNotifier';
 import { configureNotificationHandler, setupAndroidChannels } from './src/services/pushNotifications';
-import { checkAndApplyUpdateAsync } from './src/services/otaUpdates';
+import { checkAndApplyUpdateAsync, startResumeUpdateChecks } from './src/services/otaUpdates';
 import { KEEP_SCREEN_ON_STORAGE_KEY } from './src/components/KeepScreenOnToggle';
 
 // Foreground handler must be registered before any notification
@@ -53,6 +53,14 @@ export default function App() {
   const [updateCheckDone, setUpdateCheckDone] = useState(false);
   useEffect(() => {
     void checkAndApplyUpdateAsync().finally(() => setUpdateCheckDone(true));
+  }, []);
+
+  // Re-checks (stages, never applies) on every genuine foreground resume —
+  // covers the common case where the OS never actually kills the process,
+  // so the mount-only effect above never gets a second chance to run. See
+  // services/otaUpdates.ts for why this deliberately never reloads here.
+  useEffect(() => {
+    return startResumeUpdateChecks();
   }, []);
 
   useEffect(() => {
