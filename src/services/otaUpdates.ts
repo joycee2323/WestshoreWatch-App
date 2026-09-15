@@ -44,15 +44,24 @@ export async function checkAndApplyUpdateAsync(): Promise<void> {
   if (!Updates.isEnabled) return; // dev mode / Expo Go / disabled config
 
   try {
+    console.log('[ota] startup check started');
     const checkResult = await withTimeout(Updates.checkForUpdateAsync(), CHECK_TIMEOUT_MS, 'update check');
-    if (!checkResult.isAvailable) return;
+    if (!checkResult.isAvailable) {
+      console.log('[ota] no update available');
+      return;
+    }
+    console.log('[ota] update available, id=', checkResult.manifest.id);
 
     const fetchResult = await withTimeout(Updates.fetchUpdateAsync(), FETCH_TIMEOUT_MS, 'update fetch');
     // isNew is false if we're already running this exact update (shouldn't
     // happen given isAvailable was true, but expo-updates already does
     // this comparison for us) or if it resolved to a roll-back-to-embedded
     // directive, which doesn't make sense to "reload" into.
-    if (!fetchResult.isNew) return;
+    if (!fetchResult.isNew) {
+      console.log('[ota] fetch resolved to a non-new update, skipping reload');
+      return;
+    }
+    console.log('[ota] fetch succeeded, id=', fetchResult.manifest.id, '— reloading now');
 
     // Per expo-updates' own docs: no meaningful logic should run after
     // this resolves — the JS runtime may already be mid-teardown by the
