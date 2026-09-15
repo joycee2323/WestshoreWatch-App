@@ -1,5 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
-import Constants from 'expo-constants';
+import * as Application from 'expo-application';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 
@@ -33,11 +33,17 @@ export function setUnauthorizedHandler(fn: () => void) {
 // login_audit row, so the super-admin dashboard can answer "what app
 // build and device is this user on" without grepping logs.
 //
-// Values are sourced from expo-constants nativeApplicationVersion /
+// Values are sourced from expo-application's nativeApplicationVersion /
 // nativeBuildVersion (which read android/app/build.gradle versionName
 // and versionCode at runtime — the actual shipped values, not the
 // often-stale ones in app.config.js) plus expo-device for the OS
 // and model info. Platform.OS gives 'android' | 'ios'.
+//
+// NOT expo-constants: Constants.nativeApplicationVersion/nativeBuildVersion
+// don't exist on this SDK (expo-constants dropped them in favor of this
+// package) — that silently resolved to undefined forever, so these headers
+// were never actually being sent. TypeScript never caught it because
+// NativeConstants ends in `& Record<string, any>`.
 //
 // Every field is independently optional — a null/missing value just
 // means the header is omitted, and the corresponding DB column stays
@@ -52,7 +58,7 @@ function buildClientHeaders(): Readonly<Record<string, string>> {
   try {
     const out: Record<string, string> = {};
 
-    const version = Constants.nativeApplicationVersion;
+    const version = Application.nativeApplicationVersion;
     if (typeof version === 'string' && version.length > 0) {
       out['X-Client-Version'] = version;
     }
@@ -60,7 +66,7 @@ function buildClientHeaders(): Readonly<Record<string, string>> {
     // nativeBuildVersion is a string ('12'); coerce + sanity-check
     // before sending. Backend re-validates and drops non-numeric or
     // out-of-INTEGER-range values.
-    const buildStr = Constants.nativeBuildVersion;
+    const buildStr = Application.nativeBuildVersion;
     if (typeof buildStr === 'string' && buildStr.length > 0) {
       const buildNum = parseInt(buildStr, 10);
       if (Number.isFinite(buildNum) && buildNum >= 0) {

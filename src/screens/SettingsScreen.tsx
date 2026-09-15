@@ -4,7 +4,7 @@ import {
   Alert, Platform, ActivityIndicator, Switch,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Constants from 'expo-constants';
+import * as Application from 'expo-application';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuthStore } from '../store/authStore';
 import BillingScreen from './BillingScreen';
@@ -29,15 +29,23 @@ const MANUAL_URL_FALLBACK = 'https://api.westshoredrone.com/docs/westshore-watch
 const PRIVACY_URL = 'https://watch.westshoredrone.com/privacy';
 const TERMS_URL = 'https://watch.westshoredrone.com/terms';
 
-// nativeApplicationVersion/nativeBuildVersion read the actual compiled
-// native values (versionName+versionCode on Android, CFBundleShortVersionString
-// +CFBundleVersion on iOS) — same pattern as the X-Client-Version/-Build
-// headers in services/api.ts. NOT Constants.expoConfig?.version: that's the
-// JS-config value, which can now diverge from what's actually installed
-// once OTA updates (expo-updates) are shipping JS-only changes without a
-// new native build. Static per app session, computed once at module load.
-const nativeVersion = Constants.nativeApplicationVersion;
-const nativeBuild = Constants.nativeBuildVersion;
+// expo-application's nativeApplicationVersion/nativeBuildVersion read the
+// actual compiled native values (versionName+versionCode on Android,
+// CFBundleShortVersionString+CFBundleVersion on iOS) — same pattern as the
+// X-Client-Version/-Build headers in services/api.ts. NOT expo-constants:
+// Constants.nativeApplicationVersion/nativeBuildVersion don't exist on this
+// SDK — expo-constants dropped them in favor of this package (the AndroidManifest
+// field survives only as a deprecated, nested `platform.android.versionCode`,
+// with no version-name equivalent at all) — TypeScript never caught the
+// missing-property access because NativeConstants ends in `& Record<string,
+// any>`. That silently resolved to `undefined` every time, which is why this
+// showed "Unknown" rather than throwing. Also NOT Constants.expoConfig?.version:
+// that's the JS-config value, which can now diverge from what's actually
+// installed once OTA updates (expo-updates) are shipping JS-only changes
+// without a new native build. Static per app session, computed once at
+// module load.
+const nativeVersion = Application.nativeApplicationVersion;
+const nativeBuild = Application.nativeBuildVersion;
 const APP_VERSION_DISPLAY = nativeVersion
   ? (nativeBuild ? `${nativeVersion} (${nativeBuild})` : nativeVersion)
   : 'Unknown';

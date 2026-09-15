@@ -642,10 +642,26 @@ export default function LiveMapScreen() {
     }
   }, []);
 
+  // Cold-launch race guard: multiple independent triggers (focus,
+  // permissionResolved, selectedDeploymentId) can each call
+  // runFocusCentering() before deployment/node data has actually loaded —
+  // setSelectedDeploymentId fires synchronously inside applySelection, well
+  // before its own `await refetchNodes(...)` resolves. Every such call
+  // independently falls through to applyDefaultCenter with an empty node
+  // list, landing on the Cleveland fallback — and since nothing re-triggers
+  // centering once the data does arrive, a later data-starved call can
+  // permanently overwrite an earlier call's real match. This ref tracks
+  // whether ANY call this session has already landed on a real position
+  // (GPS-proximity match, selectedDrone, or an online node) so the Cleveland
+  // branch below refuses to regress it — later calls can still upgrade
+  // Cleveland to a real match once data arrives, just never downgrade.
+  const hasSnappedToRealPositionRef = useRef(false);
+
   const applyDefaultCenter = useCallback(() => {
     const selDrone = selectedDroneRef.current;
     if (selDrone?.last_lat && selDrone?.last_lon) {
       snapCameraTo(selDrone.last_lon, selDrone.last_lat, 14, 0);
+      hasSnappedToRealPositionRef.current = true;
       return;
     }
     // Passive mode has no `nodes` (cleared on entering passive — see
@@ -655,8 +671,10 @@ export default function LiveMapScreen() {
     const onlineNode = nodeList.find((n: any) => n.status === 'online' && n.last_lat && n.last_lon);
     if (onlineNode) {
       snapCameraTo(onlineNode.last_lon, onlineNode.last_lat, 14, 0);
+      hasSnappedToRealPositionRef.current = true;
       return;
     }
+    if (hasSnappedToRealPositionRef.current) return;
     snapCameraTo(-81.6944, 41.4993, 14, 0);
   }, [snapCameraTo]);
 
@@ -695,6 +713,7 @@ export default function LiveMapScreen() {
         const near = findNearbyNode(nodeList, cached.coords.latitude, cached.coords.longitude, GPS_SNAP_RADIUS_M);
         if (near) {
           snapCameraTo(near.last_lon, near.last_lat, 15, 0);
+          hasSnappedToRealPositionRef.current = true;
           matched = true;
         }
       }
@@ -709,7 +728,10 @@ export default function LiveMapScreen() {
     try {
       const fresh = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       const near = findNearbyNode(nodeList, fresh.coords.latitude, fresh.coords.longitude, GPS_SNAP_RADIUS_M);
-      if (near) snapCameraTo(near.last_lon, near.last_lat, 15, 500);
+      if (near) {
+        snapCameraTo(near.last_lon, near.last_lat, 15, 500);
+        hasSnappedToRealPositionRef.current = true;
+      }
     } catch (err) {
       console.warn('[livemap] fresh location read failed:', err);
     }
@@ -753,6 +775,27 @@ export default function LiveMapScreen() {
       void runFocusCentering();
     }
   }, [selectedDeploymentId, runFocusCentering]);
+
+  // Closes the actual cold-launch gap: the permissionResolved and
+  // selectedDeploymentId effects above both fire BEFORE nodes/passiveNodes
+  // has loaded (setSelectedDeploymentId fires synchronously inside
+  // applySelection, well before its own `await refetchNodes(...)`
+  // resolves), so on cold launch every early call correctly finds an empty
+  // node list and falls through to the Cleveland fallback — there's no real
+  // position yet for hasSnappedToRealPositionRef to protect. Once the node
+  // list actually populates a moment later, nothing re-triggers centering
+  // (deliberately, elsewhere) — this effect is that one missing trigger.
+  // Guarded on hasSnappedToRealPositionRef so it only matters for the
+  // empty-to-non-empty transition BEFORE any real snap has landed; once one
+  // has (from this effect or any other trigger), the guard is permanently
+  // true and every subsequent node-list update is a no-op here — this does
+  // not become a general "re-center on every node refresh" effect.
+  const relevantNodeList = isPassive ? passiveNodes : nodes;
+  useEffect(() => {
+    if (!hasSnappedToRealPositionRef.current && relevantNodeList.length > 0) {
+      void runFocusCentering();
+    }
+  }, [relevantNodeList.length, runFocusCentering]);
 
   // Helper used by both mode helpers below: ensures the WS is connected
   // and either resubscribes the existing socket to a new shape (cheap,
