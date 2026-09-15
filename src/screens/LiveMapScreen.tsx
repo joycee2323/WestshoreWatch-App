@@ -790,12 +790,29 @@ export default function LiveMapScreen() {
   // has (from this effect or any other trigger), the guard is permanently
   // true and every subsequent node-list update is a no-op here — this does
   // not become a general "re-center on every node refresh" effect.
+  //
+  // Depends on a status/coords signature, NOT list length: on a cold
+  // launch the first refetchNodes() fetch can easily land while a node is
+  // still marked offline (its "online" status server-side depends on this
+  // phone's own BLE-relay heartbeat catching up, posted every 30s), so the
+  // list populates with the node already present but ineligible — findNearbyNode
+  // and applyDefaultCenter's "first online node" fallback both require
+  // status === 'online'. The node then flips online moments later via the
+  // NODE_ONLINE WS handler, which updates the array in place (setNodes(prev
+  // => prev.map(...))) — same length before and after, so a length-keyed
+  // dependency never detects it. The signature changes on that flip, so this
+  // does. Still safe from re-fire jank: hasSnappedToRealPositionRef caps this
+  // to at most one meaningful call regardless of how sensitive the
+  // dependency is.
   const relevantNodeList = isPassive ? passiveNodes : nodes;
+  const relevantNodeSignature = relevantNodeList
+    .map((n: any) => `${n.id}:${n.status}:${n.last_lat != null && n.last_lon != null ? 1 : 0}`)
+    .join(',');
   useEffect(() => {
     if (!hasSnappedToRealPositionRef.current && relevantNodeList.length > 0) {
       void runFocusCentering();
     }
-  }, [relevantNodeList.length, runFocusCentering]);
+  }, [relevantNodeSignature, runFocusCentering]);
 
   // Helper used by both mode helpers below: ensures the WS is connected
   // and either resubscribes the existing socket to a new shape (cheap,
