@@ -160,14 +160,14 @@ final class WSWDetectionUploader {
     private func emitUploadResult(_ data: Data?) {
         guard let data = data,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
-        let accepted = (obj["accepted"] as? [Any])?.compactMap { $0 as? String } ?? []
-        let rejected: [[String: Any]] = ((obj["rejected"] as? [Any]) ?? []).compactMap { item in
-            guard let r = item as? [String: Any], let id = r["id"] as? String, !id.isEmpty else { return nil }
-            return [
-                "id": id,
-                "ts": (r["ts"] as? NSNumber) ?? NSNull(),
-                "reason": (r["reason"] as? String) ?? "stale",
-            ]
+        let accepted: [String] = ((obj["accepted"] as? [Any]) ?? []).compactMap { $0 as? String }
+        var rejected: [[String: Any]] = []
+        for item in (obj["rejected"] as? [Any]) ?? [] {
+            guard let r = item as? [String: Any], let id = r["id"] as? String, !id.isEmpty else { continue }
+            let ts: Any
+            if let n = r["ts"] as? NSNumber { ts = n } else { ts = NSNull() }
+            let reason: String = (r["reason"] as? String) ?? "stale"
+            rejected.append(["id": id, "ts": ts, "reason": reason])
         }
         if accepted.isEmpty && rejected.isEmpty { return }
         emit?("DetectionUploadResult", ["accepted": accepted, "rejected": rejected])

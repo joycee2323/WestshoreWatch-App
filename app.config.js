@@ -1,7 +1,7 @@
 // Single source of truth for the marketing version string, referenced by
 // both `expo.version` and `android.runtimeVersion` below — keeps them from
 // drifting apart the way version/buildNumber once did (see git log).
-const version = '1.2.2';
+const version = '1.2.3';
 
 module.exports = ({ config }) => ({
   expo: {
@@ -69,7 +69,7 @@ module.exports = ({ config }) => ({
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.westshoredrone.watch',
-      buildNumber: '25',
+      buildNumber: '26',
       runtimeVersion: { policy: 'fingerprint' },
       config: {
         usesNonExemptEncryption: false,
@@ -107,7 +107,7 @@ module.exports = ({ config }) => ({
       // uses the gradle value. We still keep these aligned to prevent
       // future confusion when someone greps app.config.js for "what
       // version is shipping".
-      versionCode: 40,
+      versionCode: 41,
       // FCM credentials for push delivery on standalone builds. EAS
       // Build resolves GOOGLE_SERVICES_JSON (set as an EAS secret with
       // type=file) and substitutes the path; the local fallback is
