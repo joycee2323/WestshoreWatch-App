@@ -18,6 +18,7 @@ import os
 //   UploaderForcedReinit — watchdog asked JS to re-push the JWT
 //   DeploymentPaused     — 402 from the detections endpoint
 //   DeploymentResumed    — 2xx after a pause
+//   DetectionUploadResult — per-drone backend verdicts (accepted / rejected-stale)
 //
 // ───────────────────────────────────────────────────────────────────────────
 // iOS PLATFORM CONSTRAINTS (do not exist on Android) — see also docs/ios-implementation.md
@@ -126,7 +127,7 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
     override static func requiresMainQueueSetup() -> Bool { true }
 
     override func supportedEvents() -> [String]! {
-        return ["BLEScanResult", "UploaderForcedReinit", "DeploymentPaused", "DeploymentResumed"]
+        return ["BLEScanResult", "UploaderForcedReinit", "DeploymentPaused", "DeploymentResumed", "DetectionUploadResult"]
     }
 
     override func startObserving() { hasListeners = true }

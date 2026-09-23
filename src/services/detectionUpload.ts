@@ -17,6 +17,7 @@
 
 import { DeviceEventEmitter } from 'react-native';
 import { api } from './api';
+import { applyUploadResult } from './droneNotifier';
 
 export interface UploadRecord {
   id: string;          // uasId
@@ -150,7 +151,15 @@ async function postBatch(deploymentId: string, drones: UploadRecord[]): Promise<
   }
 
   try {
-    await api.deploymentDetections(deploymentId, body);
+    const res: any = await api.deploymentDetections(deploymentId, body);
+    // Per-drone verdicts (backend >= the stale-gate response fields): lets the
+    // local fallback notifier drop alerts for frames the backend rejected.
+    if (res && (Array.isArray(res.accepted) || Array.isArray(res.rejected))) {
+      applyUploadResult(
+        Array.isArray(res.accepted) ? res.accepted : [],
+        Array.isArray(res.rejected) ? res.rejected : [],
+      );
+    }
     // 2xx: batch is already drained from the queue, so just clear backoff and
     // emit Resumed if we were billing-paused.
     backoffMs = 0;

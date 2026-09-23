@@ -552,7 +552,7 @@ export async function startBleScanning(
     const nodeLessUploadAttempted = !isRecognizedNode && !!relayDeploymentId && hasPosition;
     const nativeUploadAttempted = isRecognizedNode && hasPosition;
     if (nodeLessUploadAttempted || nativeUploadAttempted) {
-      void notifyNewDrone(effectiveUasId);
+      void notifyNewDrone(effectiveUasId, parsed.odidTimestamp ?? null);
     }
   });
 
