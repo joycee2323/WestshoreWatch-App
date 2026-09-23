@@ -153,6 +153,26 @@ final class WSWDetectionUploader {
         }
     }
 
+    // Forward the backend's per-drone verdicts ({accepted:[uasId], rejected:
+    // [{id, ts, reason}]}) to JS so droneNotifier can drop the local "New
+    // Drone Detected" fallback for frames the backend classified stale.
+    // Absent on older backends — then nothing is emitted.
+    private func emitUploadResult(_ data: Data?) {
+        guard let data = data,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        let accepted = (obj["accepted"] as? [Any])?.compactMap { $0 as? String } ?? []
+        let rejected: [[String: Any]] = ((obj["rejected"] as? [Any]) ?? []).compactMap { item in
+            guard let r = item as? [String: Any], let id = r["id"] as? String, !id.isEmpty else { return nil }
+            return [
+                "id": id,
+                "ts": (r["ts"] as? NSNumber) ?? NSNull(),
+                "reason": (r["reason"] as? String) ?? "stale",
+            ]
+        }
+        if accepted.isEmpty && rejected.isEmpty { return }
+        emit?("DetectionUploadResult", ["accepted": accepted, "rejected": rejected])
+    }
+
     private func postBatch(baseUrl: String, token: String, deviceId: String, drones: [DroneRecord]) {
         var dronesJson: [[String: Any]] = []
         for d in drones {
@@ -203,6 +223,7 @@ final class WSWDetectionUploader {
                 }
                 self.lock.unlock()
                 if wasPaused { self.emit?("DeploymentResumed", [:]) }
+                self.emitUploadResult(data)
             case 404:
                 self.lock.lock()
                 let firstTime = self.loggedMissingNodes.insert(deviceId).inserted

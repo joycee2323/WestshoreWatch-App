@@ -270,6 +270,7 @@ class DetectionUploader(private val handler: Handler, private val context: Conte
                 if (resp.isSuccessful) {
                     lastSuccessElapsedMs = SystemClock.elapsedRealtime()
                     Log.i(TAG, "POST ok node=$deviceId drones=${drones.size} status=${resp.code}")
+                    emitUploadResult(resp.body?.string())
                     // Coming back from a billing pause? Tell JS to drop the
                     // banner and clear backoff so the next flush is immediate.
                     if (pausedBackoffMs > 0L) {
@@ -326,6 +327,44 @@ class DetectionUploader(private val handler: Handler, private val context: Conte
             }
         } catch (t: Throwable) {
             Log.w(TAG, "POST error node=$deviceId: ${t.message}")
+        }
+    }
+
+    // Forward the backend's per-drone verdicts ({accepted:[uasId], rejected:
+    // [{id, ts, reason}]}) to JS so droneNotifier can drop the local "New
+    // Drone Detected" fallback for frames the backend classified stale.
+    // Absent on older backends — then nothing is emitted.
+    private fun emitUploadResult(bodyStr: String?) {
+        if (bodyStr.isNullOrEmpty()) return
+        try {
+            val obj = JSONObject(bodyStr)
+            val accepted = obj.optJSONArray("accepted")
+            val rejected = obj.optJSONArray("rejected")
+            if ((accepted == null || accepted.length() == 0) && (rejected == null || rejected.length() == 0)) return
+            val acceptedArr = Arguments.createArray()
+            if (accepted != null) {
+                for (i in 0 until accepted.length()) {
+                    accepted.optString(i, "").takeIf { it.isNotEmpty() }?.let { acceptedArr.pushString(it) }
+                }
+            }
+            val rejectedArr = Arguments.createArray()
+            if (rejected != null) {
+                for (i in 0 until rejected.length()) {
+                    val r = rejected.optJSONObject(i) ?: continue
+                    val id = r.optString("id", "").takeIf { it.isNotEmpty() } ?: continue
+                    rejectedArr.pushMap(Arguments.createMap().apply {
+                        putString("id", id)
+                        if (r.has("ts") && !r.isNull("ts")) putInt("ts", r.optInt("ts")) else putNull("ts")
+                        putString("reason", r.optString("reason", "stale"))
+                    })
+                }
+            }
+            emitEvent("DetectionUploadResult", Arguments.createMap().apply {
+                putArray("accepted", acceptedArr)
+                putArray("rejected", rejectedArr)
+            })
+        } catch (_: Throwable) {
+            // Non-JSON / unexpected body — verdicts are best-effort.
         }
     }
 
