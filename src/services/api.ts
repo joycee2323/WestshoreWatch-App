@@ -260,6 +260,15 @@ export const api = {
     return request('POST', '/deployments', body);
   },
   closeDeployment: (id: string) => request('POST', `/deployments/${id}/close`),
+  // Public live-view share links (one active link per deployment; backend
+  // routes/shareLinks.js). getShareLink resolves { link: null } when there is
+  // none. Create is operator+ (backend-enforced); any org member may revoke.
+  // link.url is the canonical public URL — use it as-is, don't rebuild it.
+  getShareLink: (deploymentId: string) =>
+    request('GET', `/share-links?deployment_id=${encodeURIComponent(deploymentId)}`),
+  createShareLink: (deploymentId: string, includeOperatorLocation: boolean) =>
+    request('POST', '/share-links', { deployment_id: deploymentId, include_operator_location: includeOperatorLocation }),
+  revokeShareLink: (id: string) => request('PATCH', `/share-links/${encodeURIComponent(id)}/revoke`),
   extendDeployment: (id: string) => request('POST', `/deployments/${id}/extend`),
   cancelDeployment: (id: string) => request('POST', `/deployments/${id}/cancel`),
   pauseDeployment: (id: string) => request('POST', `/deployments/${id}/pause`),
