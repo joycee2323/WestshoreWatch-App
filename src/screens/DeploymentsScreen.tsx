@@ -10,6 +10,7 @@ import { api } from '../services/api';
 import { useTheme } from '../theme';
 import { useAuthStore } from '../store/authStore';
 import { caps } from '../lib/caps';
+import ShareLinkPanel from '../components/ShareLinkPanel';
 
 const MIN_LEAD_MS = 60_000;
 const MAX_LEAD_MS = 30 * 24 * 60 * 60 * 1000;
@@ -27,6 +28,9 @@ export default function DeploymentsScreen() {
   const [creating, setCreating] = useState(false);
   const [billing, setBilling] = useState<any>(null);
   const [now, setNow] = useState(() => Date.now());
+  // Bumped on every load() so each card's ShareLinkPanel re-fetches with the
+  // rest of the screen (focus, pull-to-refresh, after actions).
+  const [shareReloadKey, setShareReloadKey] = useState(0);
 
   const [scheduleLater, setScheduleLater] = useState(false);
   const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
@@ -66,6 +70,7 @@ export default function DeploymentsScreen() {
       setBilling(bill);
       setOrgNodes(Array.isArray(nodes) ? nodes : []);
       setOperableOrgs(Array.isArray(orgs) ? orgs : []);
+      setShareReloadKey(k => k + 1);
     } catch (err: any) {
       Alert.alert('Error', err.message);
     } finally {
@@ -586,6 +591,9 @@ export default function DeploymentsScreen() {
                       )}
                     </View>
                   )}
+                  {dep.org_id === ownOrgId && (
+                    <ShareLinkPanel deploymentId={dep.id} canCreate={c.canCreateDeployment} reloadKey={shareReloadKey} />
+                  )}
                   <View style={s.depActions}>
                     {c.canCreateDeployment && (
                       <TouchableOpacity style={[s.actionBtn, s.cyanBtn]} onPress={() => handleStart(dep)}>
@@ -635,6 +643,9 @@ export default function DeploymentsScreen() {
                   <StatChip label="NODES" value={dep.node_count || 0} color={colors.cyan} />
                   <StatChip label="DRONES" value={dep.drone_count || 0} color={colors.text} />
                 </View>
+                {dep.org_id === ownOrgId && (
+                  <ShareLinkPanel deploymentId={dep.id} canCreate={c.canCreateDeployment} reloadKey={shareReloadKey} />
+                )}
                 <View style={s.depActions}>
                   {c.canPauseDeployment && isContinuous && isPaused && (
                     <TouchableOpacity style={[s.actionBtn, s.amberBtn]} onPress={() => handleResume(dep)}>
