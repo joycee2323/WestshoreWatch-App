@@ -37,9 +37,9 @@ export default function DeploymentsScreen() {
   const [mode, setMode] = useState<'event' | 'continuous'>('event');
   const [iosPickerOpen, setIosPickerOpen] = useState(false);
   const [iosPickerDraft, setIosPickerDraft] = useState<Date>(() => new Date(Date.now() + 15 * 60_000));
-  // Pre-assignment chip selection in the create form. Cleared whenever
-  // scheduleLater toggles off so a stale set can't sneak through if the
-  // operator changes their mind.
+  // Node chip selection in the create form (both modes). Kept across
+  // Event/Continuous and Schedule-for-later toggles; cleared after a create
+  // or when the target org changes (different node pool).
   const [createPreassignNodeIds, setCreatePreassignNodeIds] = useState<string[]>([]);
   // Inline add-pre-assigned-node picker target on scheduled cards. Null
   // when closed; the deployment id when open. Only one open at a time.
@@ -103,6 +103,19 @@ export default function DeploymentsScreen() {
   // creating into a team org, else the home-org node list.
   const effectiveCreateNodes = (createOrgId && createOrgId !== ownOrgId) ? createOrgNodes : orgNodes;
 
+  // Where a create-form node is currently bound (active OR paused deployment —
+  // paused keeps its nodes; ended deployments release them, so any non-null
+  // deployment_id counts). Null when unbound, else the deployment name when
+  // it's in the create-target org and visible to us, otherwise a generic label
+  // so another org's deployment name never leaks.
+  const currentBindingLabel = (n: any): string | null => {
+    const depId = n.current_deployment_id || n.deployment_id;
+    if (!depId) return null;
+    const dep = deployments.find((d: any) => d.id === depId);
+    const targetOrg = createOrgId || ownOrgId;
+    return dep && dep.org_id === targetOrg && dep.name ? dep.name : 'another deployment';
+  };
+
   // Android has no native datetime mode — chain date then time imperatively.
   const openAndroidPicker = () => {
     const initial = scheduledDate ?? new Date(Date.now() + 15 * 60_000);
@@ -157,13 +170,38 @@ export default function DeploymentsScreen() {
       }
       scheduledFor = scheduledDate.toISOString();
     }
-    if (mode === 'event' && createPreassignNodeIds.length === 0) {
+    if (createPreassignNodeIds.length === 0) {
       Alert.alert('Pick a node', 'Select at least one node to assign to this deployment.');
       return;
     }
+    // Immediate creates bind right away and pull each node off whatever
+    // deployment holds it — make that explicit before it happens. Scheduled
+    // creates only pre-assign, so nothing moves now.
+    if (!scheduledFor) {
+      const moving = effectiveCreateNodes
+        .filter((n: any) => createPreassignNodeIds.includes(n.id))
+        .map((n: any) => ({ n, from: currentBindingLabel(n) }))
+        .filter(x => x.from);
+      if (moving.length > 0) {
+        const lines = moving.map(({ n, from }) => `• ${n.name || n.device_id} — leaving ${from}`);
+        Alert.alert(
+          'Move nodes?',
+          `These nodes are currently on another deployment and will be moved to "${newName.trim()}":\n\n${lines.join('\n')}`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Move & start', style: 'destructive', onPress: () => { void submitCreate(scheduledFor); } },
+          ],
+        );
+        return;
+      }
+    }
+    await submitCreate(scheduledFor);
+  };
+
+  const submitCreate = async (scheduledFor: string | undefined) => {
     setCreating(true);
     try {
-      const nodeIds = mode === 'event' ? createPreassignNodeIds : undefined;
+      const nodeIds = createPreassignNodeIds;
       const targetOrgId = (createOrgId && createOrgId !== ownOrgId) ? createOrgId : undefined;
       const res = await api.createDeployment(newName.trim(), scheduledFor, mode, nodeIds, targetOrgId);
 
@@ -406,7 +444,6 @@ export default function DeploymentsScreen() {
               setMode('continuous');
               setScheduleLater(false);
               setScheduledDate(null);
-              setCreatePreassignNodeIds([]);
             }}
             activeOpacity={0.6}
           >
@@ -421,10 +458,9 @@ export default function DeploymentsScreen() {
           style={s.scheduleRow}
           onPress={() => {
             setScheduleLater(v => {
-              if (v) {
-                setScheduledDate(null);
-                setCreatePreassignNodeIds([]);
-              }
+              // Unticking resets only the schedule state; the node
+              // selection carries over to the immediate create.
+              if (v) setScheduledDate(null);
               return !v;
             });
           }}
@@ -444,12 +480,22 @@ export default function DeploymentsScreen() {
           </TouchableOpacity>
         )}
 
-        {mode === 'event' && effectiveCreateNodes.length > 0 && (
+        {effectiveCreateNodes.length === 0 && (
+          <View style={s.createPreassignSection}>
+            <Text style={s.preassignLabel}>ASSIGN NODES (REQUIRED — AT LEAST ONE)</Text>
+            <Text style={[s.preassignHint, { color: colors.amber }]}>
+              No nodes available — claim a node first on the Nodes tab.
+            </Text>
+          </View>
+        )}
+
+        {effectiveCreateNodes.length > 0 && (
           <View style={s.createPreassignSection}>
             <Text style={s.preassignLabel}>ASSIGN NODES (REQUIRED — AT LEAST ONE)</Text>
             <View style={s.chipRow}>
               {effectiveCreateNodes.map(n => {
                 const selected = createPreassignNodeIds.includes(n.id);
+                const boundTo = currentBindingLabel(n);
                 return (
                   <TouchableOpacity
                     key={n.id}
@@ -462,6 +508,9 @@ export default function DeploymentsScreen() {
                     <Text style={[s.chipPickerItemText, selected && s.chipPickerItemTextSelected]}>
                       {n.name || n.device_id}
                     </Text>
+                    {boundTo && (
+                      <Text style={s.chipBoundBadge}>ON {boundTo.toUpperCase()}</Text>
+                    )}
                   </TouchableOpacity>
                 );
               })}
@@ -482,10 +531,10 @@ export default function DeploymentsScreen() {
         <TouchableOpacity
           style={[
             s.btn,
-            (!canCreate || creating || (mode === 'event' && createPreassignNodeIds.length === 0)) && s.btnDisabled,
+            (!canCreate || creating || createPreassignNodeIds.length === 0) && s.btnDisabled,
           ]}
           onPress={handleCreate}
-          disabled={!canCreate || creating || (mode === 'event' && createPreassignNodeIds.length === 0)}
+          disabled={!canCreate || creating || createPreassignNodeIds.length === 0}
         >
           {creating
             ? <ActivityIndicator color="#000" size="small" />
@@ -948,6 +997,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
   preassignHint: { color: c.textMuted, fontSize: 10, marginTop: 8, lineHeight: 14 },
+  chipBoundBadge: { color: c.amber, fontSize: 8, letterSpacing: 0.5, marginTop: 2 },
   preassignEmpty: { color: c.textMuted, fontSize: 11 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' },
   preassignChip: {

@@ -241,8 +241,9 @@ export const api = {
 
   // Deployments
   getDeployments: () => request('GET', '/deployments'),
-  // Event deployments require nodeIds (>=1). Continuous deployments ignore
-  // them entirely on the backend, so callers can omit for continuous.
+  // Event deployments require nodeIds (>=1). Continuous deployments bind
+  // them immediately when sent; the backend still accepts continuous with
+  // none (older builds), but this app requires >=1 in both modes.
   // targetOrgId (optional) creates in a team org via an org-operate grant;
   // omitted/home-org keeps existing behavior.
   createDeployment: (
