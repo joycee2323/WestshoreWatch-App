@@ -48,6 +48,3 @@ ios/
 
 # EAS build logs (local redirected output)
 eas-build-*.log
-
-# `eas update` / `expo export` output (otherwise EAS marks the published commit dirty)
-/dist/
