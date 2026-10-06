@@ -38,6 +38,17 @@ export function fmtAltitude(m: Num): string {
   const ft = toFeet(m);
   return ft == null ? '—' : `${Math.round(ft)} ft`;
 }
+// Live drone altitude: AGL only, from the backend's alt_agl_m (the same rule
+// as the export's "Altitude AGL (ft)" that Flight Replay shows). When AGL is
+// unknown this says so. It never falls back to the HAE last_altitude.
+// Negative AGL shows as "0 ft AGL". Keep in
+// step with fmtAgl in the dashboard's src/utils/units.js.
+export function fmtAgl(aglM: Num): string {
+  const ft = toFeet(aglM);
+  // Below the ground elevation used (GPS/terrain-model error) displays as 0;
+  // the raw negative value stays in the payload.
+  return ft == null ? 'AGL n/a' : `${Math.max(0, Math.round(ft))} ft AGL`;
+}
 export function fmtSpeed(ms: Num): string {
   const mph = toMph(ms);
   return mph == null ? '—' : `${mph.toFixed(1)} mph`;

@@ -87,7 +87,7 @@ interface DroneStore {
 // coerce at the store boundary. Path coords do NOT need this — json_build_object
 // in the backend query converts DECIMAL → JSON number natively.
 const BACKEND_NUMERIC_FIELDS = [
-  'last_lat', 'last_lon', 'last_altitude',
+  'last_lat', 'last_lon', 'last_altitude', 'alt_agl_m',
   'last_speed', 'last_heading',
   'op_lat', 'op_lon',
 ] as const;
