@@ -15,7 +15,7 @@ import DetectionLimitedBanner from '../components/DetectionLimitedBanner';
 import { useScanActiveWarning } from '../hooks/useScanActiveWarning';
 import * as Location from 'expo-location';
 import { OP_STATUS_AIRBORNE } from '../services/odidParser';
-import { fmtAltitude, fmtSpeed } from '../utils/units';
+import { fmtSpeed } from '../utils/units';
 
 MapboxGL.setAccessToken(process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN ?? '');
 
@@ -352,7 +352,9 @@ export default function GuestScanScreen({ navigation }: any) {
               <>
                 <View style={s.detailGrid}>
                   <DetailRow label="POSITION" value={fmtCoord(liveDrone.lat, liveDrone.lon)} />
-                  <DetailRow label="ALTITUDE" value={liveDrone.altGeo != null ? `${fmtAltitude(liveDrone.altGeo)} HAE` : '—'} />
+                  {/* No altitude row: guest scan is phone-local (no backend), so there
+                      is no AGL source, and live views never show HAE. The ODID
+                      height field isn't decoded (odidParser.ts parseLocation). */}
                   <DetailRow label="SPEED" value={fmtSpeed(liveDrone.speedHoriz)} />
                   <DetailRow label="HEADING" value={liveDrone.heading != null ? `${Math.round(liveDrone.heading)}°` : '—'} />
                   <DetailRow label="OPERATOR" value={fmtCoord(liveDrone.opLat, liveDrone.opLon)} />

@@ -20,7 +20,7 @@ import { startBleScanning, stopBleScanning, getBridgeInRange } from '../services
 import { fetchNodes as fetchNodeRegistry, getNodeByMac } from '../services/nodeRegistry';
 import * as Location from 'expo-location';
 import { useCaps } from '../lib/useCaps';
-import { fmtAltitude, fmtSpeed } from '../utils/units';
+import { fmtAgl, fmtSpeed } from '../utils/units';
 
 // Debounce window for nickname edits — avoids hammering the backend on every
 // keystroke while the operator is typing. Saves on settle.
@@ -1793,7 +1793,8 @@ export default function LiveMapScreen() {
         // Normalize field names: BLE drones use camelCase, backend uses snake_case
         const dLat = liveDrone.lat ?? liveDrone.last_lat;
         const dLon = liveDrone.lon ?? liveDrone.last_lon;
-        const dAlt = liveDrone.altGeo ?? liveDrone.last_altitude;
+        // AGL from the backend (services/droneAgl.js); never the HAE altitude.
+        const dAgl = liveDrone.alt_agl_m;
         const dSpeed = liveDrone.speedHoriz ?? liveDrone.last_speed;
         const dOpLat = liveDrone.opLat ?? liveDrone.op_lat;
         const dOpLon = liveDrone.opLon ?? liveDrone.op_lon;
@@ -1870,7 +1871,7 @@ export default function LiveMapScreen() {
                   {[
                     ['MODEL', modelDisplay],
                     ['POSITION', dLat != null ? `${Number(dLat).toFixed(6)}, ${Number(dLon).toFixed(6)}` : '—'],
-                    ['ALTITUDE', dAlt != null ? `${fmtAltitude(dAlt)} HAE` : '—'],
+                    ['ALTITUDE', fmtAgl(dAgl)],
                     ['SPEED', fmtSpeed(dSpeed)],
                     ['OPERATOR', dOpLat != null ? `${Number(dOpLat).toFixed(6)}, ${Number(dOpLon).toFixed(6)}` : '—'],
                     ['NODE', nodeName],
