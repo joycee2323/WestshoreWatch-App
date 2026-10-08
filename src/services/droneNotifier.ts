@@ -49,6 +49,7 @@
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DeviceEventEmitter, Platform } from 'react-native';
+import { rejectionCancelsFallback } from './fallbackCancel';
 
 const FALLBACK_TIMEOUT_MS = 8000;
 
@@ -182,10 +183,11 @@ export function applyUploadResult(accepted: string[] = [], rejected: UploadRejec
     }
     const timer = pendingFallbacks.get(uasId);
     if (!timer || acceptedWhilePending.has(uasId)) continue;
-    // Only cancel when the rejected frame is the one that armed the fallback
-    // (or either side has no ts to compare).
+    // Stale reasons cancel only when the rejected frame is the one that armed
+    // the fallback (or either side has no ts); "grounded" always cancels —
+    // see services/fallbackCancel.ts.
     const armedTs = pendingTs.get(uasId) ?? null;
-    if (armedTs !== null && ts !== null && armedTs !== ts) continue;
+    if (!rejectionCancelsFallback(armedTs, ts, r.reason)) continue;
     clearTimeout(timer);
     pendingFallbacks.delete(uasId);
     pendingTs.delete(uasId);
