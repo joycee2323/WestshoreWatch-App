@@ -92,6 +92,14 @@ class DetectionUploader(private val handler: Handler, private val context: Conte
         // Nullable for forward compat (older Android builds may not have
         // populated it); backend treats missing as "skip the gate".
         val odidTimestamp: Int?,
+        // Grounded-aircraft fields (backend services/groundedState.js), same
+        // names/units as the Sentinel upload: ODID status 0-3, height m,
+        // vertical speed m/s positive up. null = unknown/invalid (the parser
+        // maps the ODID invalid sentinels to null). Defaulted so any record
+        // built without them still uploads, with nulls.
+        val status: Int? = null,
+        val height: Double? = null,
+        val vspd: Double? = null,
     )
 
     fun configure(baseUrl: String?, authToken: String?) {
@@ -252,6 +260,9 @@ class DetectionUploader(private val handler: Handler, private val context: Conte
             o.put("op_lat", d.opLat ?: JSONObject.NULL)
             o.put("op_lon", d.opLon ?: JSONObject.NULL)
             o.put("ts", d.odidTimestamp ?: JSONObject.NULL)
+            o.put("status", d.status ?: JSONObject.NULL)
+            o.put("height", d.height ?: JSONObject.NULL)
+            o.put("vspd", d.vspd ?: JSONObject.NULL)
             dronesJson.put(o)
         }
         val bodyJson = JSONObject().put("drones", dronesJson).toString()

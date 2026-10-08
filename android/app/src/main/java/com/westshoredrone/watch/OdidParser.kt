@@ -8,6 +8,17 @@ object OdidParser {
 
     const val OP_STATUS_AIRBORNE = 2
 
+    // ASTM F3411 / opendroneid "invalid / unknown" encodings for the Location
+    // message. A field carrying one of these is decoded to null (unknown) —
+    // never a bogus number — so the backend's grounded rules fail open on it.
+    //   status      4..15 reserved           → null
+    //   altitudes   raw 0 = -1000 m          → null (decoded <= -999.75)
+    //   height      raw 0 = -1000 m          → null
+    //   vert speed  63 m/s (|v| > 62 m/s)    → null
+    const val OP_STATUS_MAX_VALID = 3
+    const val ALT_INVALID_MAX_M = -999.75
+    const val VSPEED_MAX_VALID_MPS = 62.0
+
     data class Result(
         val msgType: Int? = null,
         val hasBasicId: Boolean = false,
@@ -20,6 +31,16 @@ object OdidParser {
         val speedHoriz: Double? = null,
         val heading: Double? = null,
         val status: Int? = null,
+        // Location byte 17-18: height in metres (raw * 0.5 - 1000), relative
+        // to heightType. null = unknown/invalid.
+        val height: Double? = null,
+        // Location byte 1 bit 2: 0 = above takeoff, 1 = above ground (AGL).
+        // X1/M1 relayed frames always carry 0 (the firmware re-encoder does not
+        // forward it). Parsed for completeness; not uploaded.
+        val heightType: Int? = null,
+        // Location byte 4: signed vertical speed, raw * 0.5 m/s, positive up.
+        // null = unknown/invalid.
+        val speedVert: Double? = null,
         val opLat: Double? = null,
         val opLon: Double? = null,
         // ASTM F3411-22a Location message bytes 21-22 (uint16 LE):
@@ -43,6 +64,9 @@ object OdidParser {
             speedHoriz = other.speedHoriz ?: this.speedHoriz,
             heading = other.heading ?: this.heading,
             status = other.status ?: this.status,
+            height = other.height ?: this.height,
+            heightType = other.heightType ?: this.heightType,
+            speedVert = other.speedVert ?: this.speedVert,
             opLat = other.opLat ?: this.opLat,
             opLon = other.opLon ?: this.opLon,
             odidTimestamp = other.odidTimestamp ?: this.odidTimestamp,
@@ -83,7 +107,12 @@ object OdidParser {
 
     private fun parseLocation(msg: ByteArray, msgType: Int): Result {
         if (msg.size < 25) return Result(msgType = msgType)
-        val status = (msg[1].toInt() ushr 4) and 0x0F
+        val statusRaw = (msg[1].toInt() ushr 4) and 0x0F
+        val status = if (statusRaw <= OP_STATUS_MAX_VALID) statusRaw else null
+        val heightType = (msg[1].toInt() ushr 2) and 0x01
+        // Byte 4 is a signed int8 (Kotlin Byte.toInt() sign-extends).
+        val vspeed = msg[4].toInt() * 0.5
+        val speedVert = if (kotlin.math.abs(vspeed) <= VSPEED_MAX_VALID_MPS) vspeed else null
         val ewSeg = msg[1].toInt() and 0x01
         val dirMod = (msg[2].toInt() ushr 1) and 0x7F
         val speedMult = msg[2].toInt() and 0x01
@@ -92,11 +121,15 @@ object OdidParser {
         val latRaw = readInt32LE(msg, 5)
         val lonRaw = readInt32LE(msg, 9)
         val altGeoRaw = readUInt16LE(msg, 15)
+        val heightRaw = readUInt16LE(msg, 17)
         val tsRaw = readUInt16LE(msg, 21)
 
         val lat = latRaw / 1e7
         val lon = lonRaw / 1e7
-        val altGeo = (altGeoRaw * 0.5) - 1000.0
+        val altGeoM = (altGeoRaw * 0.5) - 1000.0
+        val altGeo = if (altGeoM > ALT_INVALID_MAX_M) altGeoM else null
+        val heightM = (heightRaw * 0.5) - 1000.0
+        val height = if (heightM > ALT_INVALID_MAX_M) heightM else null
         val speedHoriz = if (speedMult == 1) (speedRaw * 0.75 + 63.75) else (speedRaw * 0.25)
         val heading = (dirMod + (ewSeg * 180)).toDouble()
 
@@ -111,6 +144,9 @@ object OdidParser {
             speedHoriz = speedHoriz,
             heading = heading,
             status = status,
+            height = height,
+            heightType = heightType,
+            speedVert = speedVert,
             odidTimestamp = tsRaw,
         )
     }

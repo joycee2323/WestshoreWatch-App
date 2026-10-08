@@ -166,6 +166,9 @@ dependencies {
     // config plugin). Same caveat as the existing BLEScanner native module.
     implementation("com.google.android.gms:play-services-wearable:18.2.0")
 
+    // JVM unit tests only (src/test: OdidParserTest). Not packaged in the APK/AAB.
+    testImplementation("junit:junit:4.13.2")
+
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
     def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";
     def isWebpAnimatedEnabled = (findProperty('expo.webp.animated') ?: "") == "true";

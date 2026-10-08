@@ -487,7 +487,8 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
         uploader.enqueue(deviceId: deviceId, record: WSWDetectionUploader.DroneRecord(
             id: uasId, lat: lat, lon: lon, alt: parsed.altGeo, spd: parsed.speedHoriz,
             hdg: parsed.heading, opLat: parsed.opLat, opLon: parsed.opLon,
-            odidTimestamp: parsed.odidTimestamp
+            odidTimestamp: parsed.odidTimestamp,
+            status: parsed.status, height: parsed.height, vspd: parsed.speedVert
         ))
     }
 
