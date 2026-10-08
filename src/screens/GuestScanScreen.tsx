@@ -14,7 +14,7 @@ import KeepScreenActiveModal from '../components/KeepScreenActiveModal';
 import DetectionLimitedBanner from '../components/DetectionLimitedBanner';
 import { useScanActiveWarning } from '../hooks/useScanActiveWarning';
 import * as Location from 'expo-location';
-import { OP_STATUS_AIRBORNE } from '../services/odidParser';
+import { isOnGroundFrame, guestStatusLabel, ON_GROUND_COLOR } from '../services/onGround';
 import { fmtSpeed } from '../utils/units';
 
 MapboxGL.setAccessToken(process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN ?? '');
@@ -178,7 +178,8 @@ export default function GuestScanScreen({ navigation }: any) {
                   },
                   properties: {
                     droneId: id,
-                    color: getDroneColor(id),
+                    // On-ground frames are greyed, never hidden (services/onGround.ts).
+                    color: isOnGroundFrame(d) ? ON_GROUND_COLOR : getDroneColor(id),
                     opacity: selectedId == null || selectedId === id ? 1.0 : 0.5,
                   },
                 };
@@ -277,9 +278,8 @@ export default function GuestScanScreen({ navigation }: any) {
           {droneList.map((drone: any) => {
             const id = drone.uasId || drone.uas_id || drone.mac;
             const selId = selectedDrone ? (selectedDrone as any).uasId || (selectedDrone as any).uas_id || selectedDrone.mac : null;
-            const color = getDroneColor(id);
+            const color = isOnGroundFrame(drone) ? ON_GROUND_COLOR : getDroneColor(id);
             const age = Math.round((Date.now() - drone.lastSeen) / 1000);
-            const airborne = drone.status === OP_STATUS_AIRBORNE;
             return (
               <TouchableOpacity
                 key={id}
@@ -304,7 +304,7 @@ export default function GuestScanScreen({ navigation }: any) {
                 <View style={s.droneInfo}>
                   <Text style={s.droneId}>{drone.uasId || drone.mac}</Text>
                   <Text style={s.droneMeta}>
-                    {airborne ? '↑ AIRBORNE' : '● GROUND'} · {age}s ago · {drone.rssi}dBm
+                    {guestStatusLabel(drone)} · {age}s ago · {drone.rssi}dBm
                   </Text>
                 </View>
               </TouchableOpacity>

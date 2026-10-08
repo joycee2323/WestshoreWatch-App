@@ -17,6 +17,7 @@ import { createWebSocket, api, ReconnectingWebSocket, SubscribeMessage } from '.
 import { useTheme, getDroneColor } from '../theme';
 import { OP_STATUS_AIRBORNE } from '../services/odidParser';
 import { startBleScanning, stopBleScanning, getBridgeInRange } from '../services/bleScanner';
+import { isOnGroundFrame, ON_GROUND_COLOR } from '../services/onGround';
 import { fetchNodes as fetchNodeRegistry, getNodeByMac } from '../services/nodeRegistry';
 import * as Location from 'expo-location';
 import { useCaps } from '../lib/useCaps';
@@ -1553,7 +1554,12 @@ export default function LiveMapScreen() {
                 // another org's deployment. Distinct glyph + a "· lent" label
                 // suffix (generic — never the lendee's deployment nickname).
                 const lent = isLentExternal(d, orgId);
-                const baseLabel = nicknames[d.uasId || d.uas_id] || d.uasId || d.uas_id || id.slice(-5);
+                // Local BLE frame reporting on-ground + stationary: drawn grey
+                // with an "on ground" label. Display only — never filtered out
+                // and never used for alerts (services/onGround.ts).
+                const onGround = isOnGroundFrame(d);
+                const nameLabel = nicknames[d.uasId || d.uas_id] || d.uasId || d.uas_id || id.slice(-5);
+                const baseLabel = onGround ? `${nameLabel} · on ground` : nameLabel;
                 return {
                   type: 'Feature' as const,
                   id,
@@ -1564,7 +1570,7 @@ export default function LiveMapScreen() {
                   properties: {
                     droneId: id,
                     heading: hdg,
-                    color: getDroneColor(id),
+                    color: onGround ? ON_GROUND_COLOR : getDroneColor(id),
                     isLent: lent,
                     label: lent ? `${baseLabel} · lent` : baseLabel,
                     opacity: (isPassive ? 0.6 : 1.0) *
