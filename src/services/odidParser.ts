@@ -18,7 +18,16 @@ export interface OdidDetection {
   altGeo?: number;
   speedHoriz?: number;
   heading?: number;
-  status?: number; // 0=undeclared, 1=ground, 2=airborne, 3=emergency
+  status?: number; // 0=undeclared, 1=ground, 2=airborne, 3=emergency (4-15 reserved → undefined)
+  // Location bytes 17-18: height (m, raw * 0.5 - 1000) relative to heightType.
+  // undefined = unknown/invalid.
+  height?: number;
+  // Location byte 1 bit 2: 0 = above takeoff, 1 = above ground. X1/M1 relays
+  // always carry 0. Parsed for completeness; not uploaded.
+  heightType?: number;
+  // Location byte 4: signed vertical speed, raw * 0.5 m/s, positive up.
+  // undefined = unknown/invalid.
+  speedVert?: number;
   opLat?: number;
   opLon?: number;
   // ASTM F3411-22a Location message bytes 21-22 (uint16 LE): deciseconds
@@ -34,6 +43,12 @@ export interface OdidDetection {
 
 // Airborne status value from ODID spec
 export const OP_STATUS_AIRBORNE = 2;
+
+// ASTM F3411 / opendroneid invalid-or-unknown encodings → undefined, never a
+// bogus number. Mirrors OdidParser.kt / WSWOdidParser.swift.
+export const OP_STATUS_MAX_VALID = 3;    // 4..15 reserved
+export const ALT_INVALID_MAX_M = -999.75; // raw 0 = -1000 m (altitudes, height)
+export const VSPEED_MAX_VALID_MPS = 62;   // 63 m/s = invalid
 
 function readInt32LE(buf: Uint8Array, offset: number): number {
   return (buf[offset] | (buf[offset+1] << 8) | (buf[offset+2] << 16) | (buf[offset+3] << 24));
@@ -62,7 +77,12 @@ function parseLocation(msg: Uint8Array): Partial<OdidDetection> {
   // Layout matches C6-Firmware ble_relay.c encode_location():
   //   [0] msg type | [1] status/ew_seg | [2] dir_mod/speed_mult | [3] speed | [4] vert_speed
   //   [5-8] lat | [9-12] lon | [13-14] alt_baro | [15-16] alt_geo | [17-18] height
-  const status = (msg[1] >> 4) & 0x0F;
+  const statusRaw = (msg[1] >> 4) & 0x0F;
+  const status = statusRaw <= OP_STATUS_MAX_VALID ? statusRaw : undefined;
+  const heightType = (msg[1] >> 2) & 0x01;
+  const vspeedRaw = msg[4] > 127 ? msg[4] - 256 : msg[4]; // signed int8
+  const vspeed = vspeedRaw * 0.5;
+  const speedVert = Math.abs(vspeed) <= VSPEED_MAX_VALID_MPS ? vspeed : undefined;
   const ewSeg = msg[1] & 0x01;
   const dirMod = (msg[2] >> 1) & 0x7F;
   const speedMult = msg[2] & 0x01;
@@ -71,17 +91,24 @@ function parseLocation(msg: Uint8Array): Partial<OdidDetection> {
   const latRaw = readInt32LE(msg, 5);
   const lonRaw = readInt32LE(msg, 9);
   const altGeoRaw = readUInt16LE(msg, 15);
+  const heightRaw = readUInt16LE(msg, 17);
   const tsRaw = readUInt16LE(msg, 21);
 
   const lat = latRaw / 1e7;
   const lon = lonRaw / 1e7;
-  const altGeo = (altGeoRaw * 0.5) - 1000;
+  const altGeoM = (altGeoRaw * 0.5) - 1000;
+  const altGeo = altGeoM > ALT_INVALID_MAX_M ? altGeoM : undefined;
+  const heightM = (heightRaw * 0.5) - 1000;
+  const height = heightM > ALT_INVALID_MAX_M ? heightM : undefined;
   const speedHoriz = speedMult ? (speedRaw * 0.75 + 63.75) : (speedRaw * 0.25);
   const heading = dirMod + (ewSeg * 180);
 
   if (lat === 0 && lon === 0) return { msgType, hasLocation: false };
 
-  return { msgType, hasLocation: true, lat, lon, altGeo, speedHoriz, heading, status, odidTimestamp: tsRaw };
+  return {
+    msgType, hasLocation: true, lat, lon, altGeo, speedHoriz, heading, status,
+    height, heightType, speedVert, odidTimestamp: tsRaw,
+  };
 }
 
 function parseSystem(msg: Uint8Array): Partial<OdidDetection> {
