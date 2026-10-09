@@ -1,7 +1,7 @@
 // Single source of truth for the marketing version string, referenced by
 // both `expo.version` and `android.runtimeVersion` below — keeps them from
 // drifting apart the way version/buildNumber once did (see git log).
-const version = '1.2.4';
+const version = '1.2.5';
 
 module.exports = ({ config }) => ({
   expo: {
@@ -69,7 +69,7 @@ module.exports = ({ config }) => ({
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.westshoredrone.watch',
-      buildNumber: '27',
+      buildNumber: '28',
       runtimeVersion: { policy: 'fingerprint' },
       config: {
         usesNonExemptEncryption: false,
@@ -107,14 +107,15 @@ module.exports = ({ config }) => ({
       // uses the gradle value. We still keep these aligned to prevent
       // future confusion when someone greps app.config.js for "what
       // version is shipping".
-      versionCode: 42,
-      // FCM credentials for push delivery on standalone builds. EAS
-      // Build resolves GOOGLE_SERVICES_JSON (set as an EAS secret with
-      // type=file) and substitutes the path; the local fallback is
-      // ./google-services.json (gitignored, the source of truth for
-      // local builds and prebuild). The Google Services gradle plugin
-      // ALSO needs the file at android/app/google-services.json — see
-      // android/app/build.gradle apply plugin line.
+      versionCode: 43,
+      // FCM credentials for push delivery. android/ is committed (bare),
+      // so EAS does not run prebuild and this field is used only by a local
+      // `expo prebuild`; the Google Services Gradle plugin reads
+      // android/app/google-services.json (android/app/build.gradle).
+      // Builds up to 1.2.4 had NO EAS secret: the gitignored local file was
+      // copied in and uploaded (.easignore re-includes it). With the EAS file
+      // variable GOOGLE_SERVICES_JSON set, scripts/eas-google-services.js
+      // (package.json "eas-build-post-install") copies it into android/app/.
       googleServicesFile: process.env.GOOGLE_SERVICES_JSON || './google-services.json',
       permissions: [
         'BLUETOOTH',

@@ -69,6 +69,7 @@ const CASES = [
   ['status 0 (undeclared)', { status: 0 }, { status: 0 }],
   ['status 2 (airborne)', { status: 2 }, { status: 2 }],
   ['status 3 (emergency)', { status: 3 }, { status: 3 }],
+  ['status 4 (RID system failure) is a valid status', { status: 4 }, { status: 4 }],
   ['status 5 (reserved) is unknown', { status: 5 }, { status: null }],
   ['status 15 (reserved) is unknown', { status: 15 }, { status: null }],
   ['height type 1 (above ground) does not disturb status', { heightType: 1 }, { status: 1, heightType: 1 }],

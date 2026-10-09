@@ -40,6 +40,7 @@ export function guestStatusLabel(d: OnGroundInput | null | undefined): string {
   switch (d?.status) {
     case 2: return '↑ AIRBORNE';
     case 3: return '⚠ EMERGENCY';
+    case 4: return '⚠ RID SYSTEM FAILURE';
     case 1: return '○ GROUND STATUS';
     default: return '○ STATUS UNKNOWN';
   }
