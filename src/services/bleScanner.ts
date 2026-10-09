@@ -533,6 +533,9 @@ export async function startBleScanning(
         op_lat: emitOpLat ?? null,
         op_lon: emitOpLon ?? null,
         ts: parsed.odidTimestamp ?? null,
+        status: parsed.status ?? null,
+        height: parsed.height ?? null,
+        vspd: parsed.speedVert ?? null,
       });
     }
 

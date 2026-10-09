@@ -15,6 +15,8 @@ export interface DroneEntry extends Partial<OdidDetection> {
   speedHoriz?: number;
   heading?: number;
   status?: number;
+  height?: number;
+  speedVert?: number;
   opLat?: number;
   opLon?: number;
   sourceMac?: string;
@@ -174,6 +176,8 @@ export const useDroneStore = create<DroneStore>((set) => ({
         speedHoriz: data.speedHoriz ?? existing?.speedHoriz,
         heading: data.heading ?? existing?.heading,
         status: data.status ?? existing?.status,
+        height: data.height ?? existing?.height,
+        speedVert: data.speedVert ?? existing?.speedVert,
         opLat: data.opLat ?? existing?.opLat,
         opLon: data.opLon ?? existing?.opLon,
         sourceMac: (data as any).sourceMac ?? existing?.sourceMac,

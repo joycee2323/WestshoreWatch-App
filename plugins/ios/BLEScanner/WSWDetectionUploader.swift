@@ -25,6 +25,13 @@ final class WSWDetectionUploader {
         // ASTM F3411-22a Location timestamp (deciseconds since the UTC hour).
         // Nullable for forward compat; backend treats missing as "skip the gate".
         let odidTimestamp: Int?
+        // Grounded-aircraft fields — same names/units as the Sentinel upload
+        // and DetectionUploader.kt: ODID status 0-3, height m, vertical speed
+        // m/s positive up. nil = unknown/invalid → JSON null. Defaulted so a
+        // record built without them still uploads, with nulls.
+        var status: Int? = nil
+        var height: Double? = nil
+        var vspd: Double? = nil
     }
 
     // deviceId -> (uasId -> latest record). Coalesces repeat sightings within a
@@ -186,6 +193,9 @@ final class WSWDetectionUploader {
                 "op_lat": d.opLat as Any? ?? NSNull(),
                 "op_lon": d.opLon as Any? ?? NSNull(),
                 "ts": d.odidTimestamp as Any? ?? NSNull(),
+                "status": d.status as Any? ?? NSNull(),
+                "height": d.height as Any? ?? NSNull(),
+                "vspd": d.vspd as Any? ?? NSNull(),
             ])
         }
         let bodyObj: [String: Any] = ["drones": dronesJson]

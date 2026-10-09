@@ -18,18 +18,9 @@
 import { DeviceEventEmitter } from 'react-native';
 import { api } from './api';
 import { applyUploadResult } from './droneNotifier';
+import { uploadBody, UploadRecord } from './uploadPayload';
 
-export interface UploadRecord {
-  id: string;          // uasId
-  lat: number;
-  lon: number;
-  alt?: number | null; // geodetic altitude (m)
-  spd?: number | null; // horizontal speed (m/s)
-  hdg?: number | null; // heading (deg)
-  op_lat?: number | null;
-  op_lon?: number | null;
-  ts?: number | null;  // ODID Location timestamp (deciseconds since the UTC hour)
-}
+export type { UploadRecord } from './uploadPayload';
 
 // Mirror the native uploader's flush cadence and per-bucket cap so the backend
 // sees the same arrival shape regardless of relay platform.
@@ -136,11 +127,7 @@ function requeue(deploymentId: string, drones: UploadRecord[]): void {
 }
 
 async function postBatch(deploymentId: string, drones: UploadRecord[]): Promise<void> {
-  const body = drones.map(d => ({
-    id: d.id, lat: d.lat, lon: d.lon,
-    alt: d.alt ?? null, spd: d.spd ?? null, hdg: d.hdg ?? null,
-    op_lat: d.op_lat ?? null, op_lon: d.op_lon ?? null, ts: d.ts ?? null,
-  }));
+  const body = drones.map(uploadBody);
 
   if (!loggedFirstPayload) {
     loggedFirstPayload = true;

@@ -21,6 +21,15 @@ struct WSWOdidResult {
     var speedHoriz: Double?
     var heading: Double?
     var status: Int?
+    // Location bytes 17-18: height (m, raw * 0.5 - 1000) relative to
+    // heightType. nil = unknown/invalid.
+    var height: Double?
+    // Location byte 1 bit 2: 0 = above takeoff, 1 = above ground. X1/M1 relays
+    // always carry 0. Parsed for completeness; not uploaded.
+    var heightType: Int?
+    // Location byte 4: signed vertical speed, raw * 0.5 m/s, positive up.
+    // nil = unknown/invalid.
+    var speedVert: Double?
     var opLat: Double?
     var opLon: Double?
     // ASTM F3411-22a Location message bytes 21-22 (uint16 LE): deciseconds
@@ -42,6 +51,9 @@ struct WSWOdidResult {
         r.speedHoriz = other.speedHoriz ?? speedHoriz
         r.heading = other.heading ?? heading
         r.status = other.status ?? status
+        r.height = other.height ?? height
+        r.heightType = other.heightType ?? heightType
+        r.speedVert = other.speedVert ?? speedVert
         r.opLat = other.opLat ?? opLat
         r.opLon = other.opLon ?? opLon
         r.odidTimestamp = other.odidTimestamp ?? odidTimestamp
@@ -52,6 +64,12 @@ struct WSWOdidResult {
 enum WSWOdidParser {
     static let appCode = 0x0D
     static let opStatusAirborne = 2
+    // ASTM F3411 / opendroneid invalid-or-unknown encodings → nil. Mirrors
+    // OdidParser.kt: status 4..15 reserved, altitudes/height raw 0 (-1000 m,
+    // decoded <= -999.75), vertical speed 63 m/s (|v| > 62).
+    static let opStatusMaxValid = 3
+    static let altInvalidMaxM = -999.75
+    static let vspeedMaxValidMps = 62.0
     static let msgPack = 0xF
 
     /// Entry point: full service-data payload = [app_code 0x0D][counter][message(s)].
@@ -97,7 +115,11 @@ enum WSWOdidParser {
     private static func parseLocation(_ msg: [UInt8], _ msgType: Int) -> WSWOdidResult {
         var r = WSWOdidResult(); r.msgType = msgType
         if msg.count < 25 { return r }
-        let status = (Int(msg[1]) >> 4) & 0x0F
+        let statusRaw = (Int(msg[1]) >> 4) & 0x0F
+        let status: Int? = statusRaw <= opStatusMaxValid ? statusRaw : nil
+        let heightType = (Int(msg[1]) >> 2) & 0x01
+        let vspeed = Double(Int8(bitPattern: msg[4])) * 0.5
+        let speedVert: Double? = abs(vspeed) <= vspeedMaxValidMps ? vspeed : nil
         let ewSeg = Int(msg[1]) & 0x01
         let dirMod = (Int(msg[2]) >> 1) & 0x7F
         let speedMult = Int(msg[2]) & 0x01
@@ -106,11 +128,15 @@ enum WSWOdidParser {
         let latRaw = readInt32LE(msg, 5)
         let lonRaw = readInt32LE(msg, 9)
         let altGeoRaw = readUInt16LE(msg, 15)
+        let heightRaw = readUInt16LE(msg, 17)
         let tsRaw = readUInt16LE(msg, 21)
 
         let lat = Double(latRaw) / 1e7
         let lon = Double(lonRaw) / 1e7
-        let altGeo = (Double(altGeoRaw) * 0.5) - 1000.0
+        let altGeoM = (Double(altGeoRaw) * 0.5) - 1000.0
+        let altGeo: Double? = altGeoM > altInvalidMaxM ? altGeoM : nil
+        let heightM = (Double(heightRaw) * 0.5) - 1000.0
+        let height: Double? = heightM > altInvalidMaxM ? heightM : nil
         let speedHoriz = speedMult == 1 ? (Double(speedRaw) * 0.75 + 63.75) : (Double(speedRaw) * 0.25)
         let heading = Double(dirMod + (ewSeg * 180))
 
@@ -125,6 +151,9 @@ enum WSWOdidParser {
         r.speedHoriz = speedHoriz
         r.heading = heading
         r.status = status
+        r.height = height
+        r.heightType = heightType
+        r.speedVert = speedVert
         r.odidTimestamp = tsRaw
         return r
     }
