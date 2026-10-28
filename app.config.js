@@ -23,6 +23,15 @@ module.exports = ({ config }) => ({
       infoPlist: {
         NSLocationWhenInUseUsageDescription:
           'Westshore Watch uses your location to center the map on your area and show nearby detections.',
+        NSBluetoothAlwaysUsageDescription:
+          'Westshore Watch uses Bluetooth to receive Remote ID broadcasts relayed from your Westshore Watch detection nodes.',
+        // remote-notification comes from the expo-notifications plugin at
+        // prebuild; we declare it explicitly here alongside bluetooth-central
+        // so an explicit infoPlist.UIBackgroundModes (which takes precedence)
+        // doesn't drop push background delivery. bluetooth-central lets the
+        // CBCentralManager keep receiving ODID adverts for a limited,
+        // OS-throttled window after backgrounding — see ios/BLEScannerModule.
+        UIBackgroundModes: ['remote-notification', 'bluetooth-central'],
         ITSAppUsesNonExemptEncryption: false,
       },
       entitlements: {
@@ -83,6 +92,11 @@ module.exports = ({ config }) => ({
           enableBackgroundRemoteNotifications: true,
         },
       ],
+      // Injects the hand-written iOS BLEScanner Swift module (Swift + Obj-C
+      // bridge) into the prebuilt Xcode project. Source lives in
+      // plugins/ios/BLEScanner/. See plugins/withBleScanner.js. No-op on Android
+      // (the Android module ships as committed Kotlin under android/).
+      './plugins/withBleScanner',
     ],
     extra: {
       eas: {
