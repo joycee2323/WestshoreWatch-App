@@ -145,7 +145,9 @@ async function request(
     }
     const err = await res.json().catch(() => ({ error: res.statusText }));
     console.warn(`API ${method} ${path} → ${res.status}:`, err);
-    throw Object.assign(new Error(err.error || 'Request failed'), { status: res.status });
+    // `body` carries the full error payload for callers that branch on it
+    // (e.g. the 409 confirmation_required from node assign).
+    throw Object.assign(new Error(err.error || 'Request failed'), { status: res.status, body: err });
   }
   return res.json();
 }
@@ -295,8 +297,9 @@ export const api = {
   // Map's "All active" selection. Empty list → no request (caller guards).
   getNodesForDeployments: (deploymentIds: string[]) =>
     request('GET', `/deployments/nodes?deployment_ids=${encodeURIComponent(deploymentIds.join(','))}`),
-  assignNode: (nodeId: string, deploymentId: string) =>
-    request('PATCH', `/deployments/nodes/${nodeId}/assign`, { deployment_id: deploymentId }),
+  assignNode: (nodeId: string, deploymentId: string, { confirm = false }: { confirm?: boolean } = {}) =>
+    request('PATCH', `/deployments/nodes/${nodeId}/assign`,
+      confirm ? { deployment_id: deploymentId, confirm: true } : { deployment_id: deploymentId }),
   unassignNode: (nodeId: string) =>
     request('PATCH', `/deployments/nodes/${nodeId}/assign`, { deployment_id: null }),
   setNodeDisplayOrder: (nodeId: string, displayOrder: number | null) =>
