@@ -106,6 +106,26 @@ export default function NodesScreen() {
           await api.assignNode(node.id, d.id);
           await load();
         } catch (err: any) {
+          // The backend asks for an explicit confirm before a reassignment
+          // that detaches the node from another organization's deployment.
+          if (err.status === 409 && err.body?.confirm_required) {
+            Alert.alert('Reassign node?', err.body.message || 'This will move the node out of its current deployment.', [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Reassign',
+                style: 'destructive',
+                onPress: async () => {
+                  try {
+                    await api.assignNode(node.id, d.id, { confirm: true });
+                    await load();
+                  } catch (e: any) {
+                    Alert.alert('Error', e.message);
+                  }
+                },
+              },
+            ]);
+            return;
+          }
           Alert.alert('Error', err.message);
         }
       },
