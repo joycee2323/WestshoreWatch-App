@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View, Text, TextInput, StyleSheet, TouchableOpacity, Platform, PermissionsAndroid, AppState, Linking, Alert, DeviceEventEmitter, ActivityIndicator,
+  LayoutChangeEvent,
 } from 'react-native';
 import MapboxGL from '@rnmapbox/maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -28,6 +29,10 @@ import { fmtAgl, fmtSpeed } from '../utils/units';
 // keystroke while the operator is typing. Saves on settle.
 const NICKNAME_SAVE_DEBOUNCE_MS = 500;
 const NICKNAME_MAX = 30;
+// Floating Standard/Satellite button: gap below the top overlays and its
+// minimum height (44pt touch target + caption fits inside).
+const LAYER_BTN_GAP = 10;
+const LAYER_BTN_SIZE = 48;
 
 // uasIds we've already logged a BLE-skip message for — keeps logcat readable
 // when the same drone is seen thousands of times. Bounded by distinct drones
@@ -107,6 +112,16 @@ export default function LiveMapScreen() {
   // Standard/Satellite basemap, persisted in AsyncStorage.
   const [mapLayer, toggleMapLayer] = useMapLayer();
   const satellite = mapLayer === 'satellite';
+  // Measured overlay edges for placing the floating layer button: bottom of
+  // the header and of each top banner (by key), and the top of the detail
+  // sheet. Layout-only; nothing else reads these.
+  const [overlayBottoms, setOverlayBottoms] = useState<Record<string, number>>({});
+  const [sheetTop, setSheetTop] = useState(0);
+  const trackOverlayBottom = useCallback((key: string) => (e: LayoutChangeEvent) => {
+    const { y, height } = e.nativeEvent.layout;
+    const bottom = Math.round(y + height);
+    setOverlayBottoms(prev => (prev[key] === bottom ? prev : { ...prev, [key]: bottom }));
+  }, []);
   const navigation = useNavigation<any>();
   const route = useRoute();
 
@@ -1687,8 +1702,8 @@ export default function LiveMapScreen() {
       </MapboxGL.MapView>
 
       {/* Deployment banner */}
-      <View style={[s.topBar, { paddingTop: insets.top + 12 }]}>
-        <View style={{ flex: 1 }}>
+      <View style={[s.topBar, { paddingTop: insets.top + 12 }]} onLayout={trackOverlayBottom('header')}>
+        <View style={{ flex: 1, marginRight: 10 }}>
           <Text style={s.appName}>WESTSHORE WATCH</Text>
           {!isPassive && (
             <Text style={s.depName} numberOfLines={1}>
@@ -1730,7 +1745,6 @@ export default function LiveMapScreen() {
             <Text style={s.nodeNearby}>📡 NODE IN RANGE</Text>
           )}
         </View>
-        <MapLayerToggle layer={mapLayer} onToggle={toggleMapLayer} />
         <KeepScreenOnToggle keepAwakeTag="live-map" />
         <View style={s.statsRow}>
           <View style={s.stat}>
@@ -1750,6 +1764,7 @@ export default function LiveMapScreen() {
       {userHasAnyNode === false && c.canPairNodeOnThisDevice && (
         <TouchableOpacity
           style={s.noNodesBanner}
+          onLayout={trackOverlayBottom('noNodes')}
           onPress={() => navigation.navigate('AddNode')}
           activeOpacity={0.8}
         >
@@ -1766,6 +1781,7 @@ export default function LiveMapScreen() {
       {isPassive && userHasAnyNode === true && (
         <TouchableOpacity
           style={s.passiveBanner}
+          onLayout={trackOverlayBottom('passive')}
           onPress={() => navigation.navigate('Deployments')}
           activeOpacity={0.8}
         >
@@ -1780,7 +1796,7 @@ export default function LiveMapScreen() {
       )}
 
       {showPausedBanner && (
-        <View style={s.bgLocBanner}>
+        <View style={s.bgLocBanner} onLayout={trackOverlayBottom('paused')}>
           <View style={{ flex: 1 }}>
             <Text style={s.bgLocTitle}>DEPLOYMENT PAUSED</Text>
             <Text style={s.bgLocSub}>
@@ -1795,7 +1811,38 @@ export default function LiveMapScreen() {
       {/* iOS: nudge to keep the app open when backgrounded mid-scan, shown
           only when notification permission is denied (otherwise an OS
           notification is used instead). */}
-      <DetectionLimitedBanner visible={showScanWarning} onDismiss={dismissScanWarning} />
+      <DetectionLimitedBanner
+        visible={showScanWarning}
+        onDismiss={dismissScanWarning}
+        onLayout={trackOverlayBottom('scanWarning')}
+      />
+
+      {/* Standard/Satellite layer button: floating on the right edge, just
+          below whichever top overlays are showing (header incl. deployment
+          chips, plus any banner). Hidden while an expanded detail sheet
+          would reach it. Rendered before the sheet so the sheet stacks on
+          top in any case. */}
+      {(() => {
+        const visibleBottoms = [
+          overlayBottoms.header ?? 0,
+          userHasAnyNode === false && c.canPairNodeOnThisDevice ? overlayBottoms.noNodes ?? 0 : 0,
+          isPassive && userHasAnyNode === true ? overlayBottoms.passive ?? 0 : 0,
+          showPausedBanner ? overlayBottoms.paused ?? 0 : 0,
+          showScanWarning ? overlayBottoms.scanWarning ?? 0 : 0,
+        ];
+        if (!overlayBottoms.header) return null; // wait for the header to measure
+        const top = Math.max(...visibleBottoms) + LAYER_BTN_GAP;
+        const coveredBySheet = !!selectedDrone && sheetTop > 0
+          && sheetTop < top + LAYER_BTN_SIZE + LAYER_BTN_GAP;
+        if (coveredBySheet) return null;
+        return (
+          <MapLayerToggle
+            layer={mapLayer}
+            onToggle={toggleMapLayer}
+            style={{ position: 'absolute', top, right: 12 }}
+          />
+        );
+      })()}
 
       {/* iOS: one-time "keep screen active" warning on first entry. */}
       <KeepScreenActiveModal storageKey="seenMapWarning_liveMap" />
@@ -1850,7 +1897,10 @@ export default function LiveMapScreen() {
         const nickname = nicknames[uasId] || '';
 
         return (
-          <View style={[s.detailSheet, sheetCollapsed && s.detailSheetCollapsed]}>
+          <View
+            style={[s.detailSheet, sheetCollapsed && s.detailSheetCollapsed]}
+            onLayout={e => setSheetTop(Math.round(e.nativeEvent.layout.y))}
+          >
             {/* Header row: title flexes; V + X sit in normal flow on the
                 same line. Their hit regions can no longer reach down into
                 the nickname TextInput below, which was causing taps on X
@@ -1953,7 +2003,7 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
   pillTextActive: { color: c.cyan, fontWeight: '700' },
-  statsRow: { flexDirection: 'row', gap: 20 },
+  statsRow: { flexDirection: 'row', gap: 18, marginLeft: 14 },
   stat: { alignItems: 'center' },
   statVal: {
     color: c.cyan, fontSize: 16, fontWeight: '700',
