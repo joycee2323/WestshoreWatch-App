@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # No .nvmrc / engines in the repo; matches the Node used locally.
+          node-version: 24
+          cache: npm
+      # Install only: no native builds and no Mapbox download token needed
+      # (that token is used by EAS/Gradle/CocoaPods, not npm).
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm test
