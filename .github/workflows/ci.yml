@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # No .nvmrc / engines in the repo; matches the Node used locally.
+          node-version: 24
+          cache: npm
+      # Install only: no native builds and no Mapbox download token needed
+      # (that token is used by EAS/Gradle/CocoaPods, not npm).
+      - run: npm ci
+      - run: npx tsc --noEmit
+      # Called directly rather than via an npm script: Expo's fingerprint
+      # hashes package.json scripts, and adding one would change the iOS
+      # runtime and stop OTAs reaching the shipped 1.2.5 build.
+      - run: node --test test/*.test.mjs
