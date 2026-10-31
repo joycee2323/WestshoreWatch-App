@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Platform, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { Platform, StyleProp, StyleSheet, Text, TouchableOpacity, ViewStyle } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MapboxGL from '@rnmapbox/maps';
 import { Ionicons } from '@expo/vector-icons';
@@ -70,9 +70,13 @@ export function HouseNumberLayer({ layer }: { layer: MapLayer }) {
 type Props = {
   layer: MapLayer;
   onToggle: () => void;
+  // Positioning from the screen (floating map control).
+  style?: StyleProp<ViewStyle>;
 };
 
-export default function MapLayerToggle({ layer, onToggle }: Props) {
+// Floating icon-only map control: layers icon with a tiny STD/SAT caption
+// for the active layer. 44x44 minimum touch target.
+export default function MapLayerToggle({ layer, onToggle, style }: Props) {
   const colors = useTheme();
   const satellite = layer === 'satellite';
   const s = styles(colors);
@@ -82,16 +86,15 @@ export default function MapLayerToggle({ layer, onToggle }: Props) {
       accessibilityLabel={`Map layer: ${satellite ? 'satellite' : 'standard'}. Tap to switch.`}
       accessibilityRole="switch"
       accessibilityState={{ checked: satellite }}
-      hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-      style={[s.btn, satellite && s.btnActive]}
+      style={[s.btn, satellite && s.btnActive, style]}
     >
       <Ionicons
         name={satellite ? 'layers' : 'layers-outline'}
-        size={18}
-        color={satellite ? colors.cyan : colors.textMuted}
+        size={20}
+        color={satellite ? colors.cyan : colors.text}
       />
       <Text style={[s.label, { color: satellite ? colors.cyan : colors.textMuted }]}>
-        {satellite ? 'SATELLITE' : 'STANDARD'}
+        {satellite ? 'SAT' : 'STD'}
       </Text>
     </TouchableOpacity>
   );
@@ -106,21 +109,22 @@ function withAlpha(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-// Matches KeepScreenOnToggle so the two sit side by side in the top bar.
+// Same surface/border/radius language as KeepScreenOnToggle and the header
+// (rgba(10,14,26,0.85)), so it reads as part of the map chrome.
 const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   btn: {
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 1,
-    minWidth: 58,
-    marginRight: 6,
+    minWidth: 44,
+    minHeight: 44,
     paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: c.border2,
-    backgroundColor: c.surface2,
+    backgroundColor: 'rgba(10,14,26,0.85)',
   },
   btnActive: {
     borderColor: withAlpha(c.cyan, 0.4),
