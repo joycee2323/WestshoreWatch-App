@@ -12,6 +12,13 @@ import { useTheme } from '../theme';
 import { useAuthStore } from '../store/authStore';
 import { useCaps } from '../lib/useCaps';
 import { fmtTemp } from '../utils/units';
+import DeploymentPickerModal from '../components/DeploymentPickerModal';
+import { deploymentPickerOptions, deploymentPickerPrompt } from '../services/deploymentPicker';
+
+// Let the picker's fade-out finish before the assign request: on iOS an Alert
+// (the cross-org confirm or an error) presented while a Modal is still
+// dismissing can be dropped.
+const PICKER_CLOSE_DELAY_MS = 350;
 
 // Sort matches the backend (display_order ASC NULLS LAST, name ASC). This is a
 // client-side safety net — the backend already returns nodes pre-sorted, but
@@ -69,6 +76,8 @@ export default function NodesScreen() {
   const [renameValue, setRenameValue] = useState('');
   const [renameSubmitting, setRenameSubmitting] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
+  // Node the "Assign to Deployment" picker is open for, or null when closed.
+  const [assignPickerNode, setAssignPickerNode] = useState<any | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -94,44 +103,50 @@ export default function NodesScreen() {
     return () => clearInterval(interval);
   }, []);
 
+  const assignToDeployment = async (node: any, deploymentId: string) => {
+    try {
+      await api.assignNode(node.id, deploymentId);
+      await load();
+    } catch (err: any) {
+      // The backend asks for an explicit confirm before a reassignment
+      // that detaches the node from another organization's deployment.
+      if (err.status === 409 && err.body?.confirm_required) {
+        Alert.alert('Reassign node?', err.body.message || 'This will move the node out of its current deployment.', [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Reassign',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await api.assignNode(node.id, deploymentId, { confirm: true });
+                await load();
+              } catch (e: any) {
+                Alert.alert('Error', e.message);
+              }
+            },
+          },
+        ]);
+        return;
+      }
+      Alert.alert('Error', err.message);
+    }
+  };
+
+  // Opens the deployment picker (a Modal, not Alert.alert: Android's
+  // AlertDialog keeps only 3 buttons, dropping deployments and Cancel).
   const handleAssign = (node: any) => {
     if (deployments.length === 0) {
       Alert.alert('No Active Deployments', 'Start a deployment first before assigning a node.');
       return;
     }
-    const options = deployments.map(d => ({
-      text: d.name,
-      onPress: async () => {
-        try {
-          await api.assignNode(node.id, d.id);
-          await load();
-        } catch (err: any) {
-          // The backend asks for an explicit confirm before a reassignment
-          // that detaches the node from another organization's deployment.
-          if (err.status === 409 && err.body?.confirm_required) {
-            Alert.alert('Reassign node?', err.body.message || 'This will move the node out of its current deployment.', [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Reassign',
-                style: 'destructive',
-                onPress: async () => {
-                  try {
-                    await api.assignNode(node.id, d.id, { confirm: true });
-                    await load();
-                  } catch (e: any) {
-                    Alert.alert('Error', e.message);
-                  }
-                },
-              },
-            ]);
-            return;
-          }
-          Alert.alert('Error', err.message);
-        }
-      },
-    }));
-    options.push({ text: 'Cancel', onPress: async () => {} });
-    Alert.alert('Assign to Deployment', `Select a deployment for "${node.name || 'this node'}"`, options);
+    setAssignPickerNode(node);
+  };
+
+  const pickDeployment = (deploymentId: string) => {
+    const node = assignPickerNode;
+    setAssignPickerNode(null);
+    if (!node) return;
+    setTimeout(() => { void assignToDeployment(node, deploymentId); }, PICKER_CLOSE_DELAY_MS);
   };
 
   const handleAddNode = useCallback(async () => {
@@ -447,6 +462,15 @@ export default function NodesScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <DeploymentPickerModal
+        visible={!!assignPickerNode}
+        title="ASSIGN TO DEPLOYMENT"
+        prompt={deploymentPickerPrompt(assignPickerNode?.name)}
+        options={deploymentPickerOptions(deployments)}
+        onSelect={pickDeployment}
+        onCancel={() => setAssignPickerNode(null)}
+      />
     </ScrollView>
   );
 }
