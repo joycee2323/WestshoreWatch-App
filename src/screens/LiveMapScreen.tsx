@@ -6,6 +6,7 @@ import MapboxGL from '@rnmapbox/maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import KeepScreenOnToggle from '../components/KeepScreenOnToggle';
+import MapLayerToggle, { HouseNumberLayer, styleURLForLayer, useMapLayer } from '../components/MapLayerToggle';
 import KeepScreenActiveModal from '../components/KeepScreenActiveModal';
 import RelayTargetModal from '../components/RelayTargetModal';
 import DetectionLimitedBanner from '../components/DetectionLimitedBanner';
@@ -103,6 +104,9 @@ function isLentExternal(d: any, orgId?: string | null): boolean {
 export default function LiveMapScreen() {
   const colors = useTheme();
   const insets = useSafeAreaInsets();
+  // Standard/Satellite basemap, persisted in AsyncStorage.
+  const [mapLayer, toggleMapLayer] = useMapLayer();
+  const satellite = mapLayer === 'satellite';
   const navigation = useNavigation<any>();
   const route = useRoute();
 
@@ -1439,7 +1443,7 @@ export default function LiveMapScreen() {
     <View style={s.container}>
       <MapboxGL.MapView
         style={StyleSheet.absoluteFill}
-        styleURL={MapboxGL.StyleURL.Dark}
+        styleURL={styleURLForLayer(mapLayer)}
         onPress={() => {
           if (featureTappedRef.current) {
             featureTappedRef.current = false;
@@ -1449,6 +1453,10 @@ export default function LiveMapScreen() {
         }}
       >
         <MapboxGL.Camera ref={cameraRef} />
+
+        {/* House numbers from z17 in both basemaps. First child so it sits
+            under geofences, paths and markers. */}
+        <HouseNumberLayer layer={mapLayer} />
 
         {/* Facility geofences (own-org boundaries). Drawn beneath nodes/
             drones. Each row carries a materialized GeoJSON Polygon Feature;
@@ -1475,18 +1483,20 @@ export default function LiveMapScreen() {
               id="geofence-fill"
               style={{
                 fillColor: ['get', 'color'],
-                fillOpacity: ['case', ['get', 'push'], 0.08, 0.04],
+                fillOpacity: satellite
+                  ? ['case', ['get', 'push'], 0.14, 0.08]
+                  : ['case', ['get', 'push'], 0.08, 0.04],
               }}
             />
             <MapboxGL.LineLayer
               id="geofence-line-solid"
               filter={['==', ['get', 'push'], true]}
-              style={{ lineColor: ['get', 'color'], lineWidth: 1.5, lineOpacity: 0.7 }}
+              style={{ lineColor: ['get', 'color'], lineWidth: satellite ? 2.5 : 1.5, lineOpacity: satellite ? 0.95 : 0.7 }}
             />
             <MapboxGL.LineLayer
               id="geofence-line-dashed"
               filter={['==', ['get', 'push'], false]}
-              style={{ lineColor: ['get', 'color'], lineWidth: 1.5, lineOpacity: 0.4, lineDasharray: [2, 2] }}
+              style={{ lineColor: ['get', 'color'], lineWidth: satellite ? 2.5 : 1.5, lineOpacity: satellite ? 0.85 : 0.4, lineDasharray: [2, 2] }}
             />
           </MapboxGL.ShapeSource>
         )}
@@ -1532,9 +1542,14 @@ export default function LiveMapScreen() {
               id={`path-${id}`}
               shape={{ type: 'LineString', coordinates: coords }}
             >
+              {/* Dark casing so the path reads on imagery; hidden on Standard. */}
+              <MapboxGL.LineLayer
+                id={`line-casing-${id}`}
+                style={{ lineColor: '#000000', lineWidth: 5, lineOpacity: satellite ? 0.55 : 0 }}
+              />
               <MapboxGL.LineLayer
                 id={`line-${id}`}
-                style={{ lineColor: color, lineWidth: 2, lineOpacity: 0.6 }}
+                style={{ lineColor: color, lineWidth: satellite ? 3 : 2, lineOpacity: satellite ? 0.95 : 0.6 }}
               />
             </MapboxGL.ShapeSource>
           );
@@ -1604,8 +1619,8 @@ export default function LiveMapScreen() {
               textField: ['case', ['==', ['get', 'isLent'], true], '◈', '⊕'],
               textSize: 30,
               textColor: ['get', 'color'],
-              textHaloColor: ['case', ['==', ['get', 'isLent'], true], '#ffffff', ['get', 'color']],
-              textHaloWidth: ['case', ['==', ['get', 'isLent'], true], 2.5, 1],
+              textHaloColor: ['case', ['==', ['get', 'isLent'], true], '#ffffff', satellite ? 'rgba(0,0,0,0.85)' : ['get', 'color']],
+              textHaloWidth: ['case', ['==', ['get', 'isLent'], true], 2.5, satellite ? 1.5 : 1],
               textOpacity: ['get', 'opacity'],
               textAllowOverlap: true,
               textIgnorePlacement: true,
@@ -1622,6 +1637,9 @@ export default function LiveMapScreen() {
               textOpacity: ['get', 'opacity'],
               textAllowOverlap: true,
               textFont: ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+              // Dark halo keeps the colored label legible on imagery.
+              textHaloColor: satellite ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0)',
+              textHaloWidth: satellite ? 1.5 : 0,
             }}
           />
         </MapboxGL.ShapeSource>
@@ -1659,7 +1677,7 @@ export default function LiveMapScreen() {
               textField: 'P',
               textSize: 20,
               textColor: '#FFD600',
-              textHaloColor: '#FFD600',
+              textHaloColor: satellite ? 'rgba(0,0,0,0.85)' : '#FFD600',
               textHaloWidth: 1,
               textAllowOverlap: true,
               textIgnorePlacement: true,
@@ -1712,6 +1730,7 @@ export default function LiveMapScreen() {
             <Text style={s.nodeNearby}>📡 NODE IN RANGE</Text>
           )}
         </View>
+        <MapLayerToggle layer={mapLayer} onToggle={toggleMapLayer} />
         <KeepScreenOnToggle keepAwakeTag="live-map" />
         <View style={s.statsRow}>
           <View style={s.stat}>
