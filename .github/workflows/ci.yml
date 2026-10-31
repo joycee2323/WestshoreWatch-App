@@ -22,4 +22,7 @@ jobs:
       # (that token is used by EAS/Gradle/CocoaPods, not npm).
       - run: npm ci
       - run: npx tsc --noEmit
-      - run: npm test
+      # Called directly rather than via an npm script: Expo's fingerprint
+      # hashes package.json scripts, and adding one would change the iOS
+      # runtime and stop OTAs reaching the shipped 1.2.5 build.
+      - run: node --test test/*.test.mjs
