@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Platform,
+  View, Text, TouchableOpacity, StyleSheet, Platform, LayoutChangeEvent,
 } from 'react-native';
 import { useTheme } from '../theme';
 
@@ -14,14 +14,20 @@ import { useTheme } from '../theme';
 // (its header banners sit at 120); Guest Scan passes a larger value so the
 // banner clears the centered "N DRONES DETECTED" count badge (top 108).
 export default function DetectionLimitedBanner({
-  visible, onDismiss, topOffset,
-}: { visible: boolean; onDismiss: () => void; topOffset?: number }) {
+  visible, onDismiss, topOffset, onLayout,
+}: {
+  visible: boolean;
+  onDismiss: () => void;
+  topOffset?: number;
+  // Lets Live Map keep its floating map controls below the banner.
+  onLayout?: (e: LayoutChangeEvent) => void;
+}) {
   const colors = useTheme();
   if (!visible) return null;
   const s = styles(colors);
   const top = topOffset ?? (Platform.OS === 'ios' ? 120 : 104);
   return (
-    <TouchableOpacity style={[s.banner, { top }]} activeOpacity={0.85} onPress={onDismiss}>
+    <TouchableOpacity style={[s.banner, { top }]} activeOpacity={0.85} onPress={onDismiss} onLayout={onLayout}>
       <Text style={s.title}>DETECTION LIMITED</Text>
       <Text style={s.body}>
         Westshore Watch was in the background. iOS limits Bluetooth scanning —
