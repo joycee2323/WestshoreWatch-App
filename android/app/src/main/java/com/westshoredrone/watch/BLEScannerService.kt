@@ -491,6 +491,8 @@ class BLEScannerService : Service() {
                 status = parsed.status,
                 height = parsed.height,
                 vspd = parsed.speedVert,
+                decoder = parsed.decoder,
+                locRaw = parsed.locRaw,
             ),
         )
     }
@@ -502,8 +504,14 @@ class BLEScannerService : Service() {
         // recognition cache so a LATER packet from this MAC that carries no
         // manufacturer data of its own (Pack/legacy detection frames on
         // handles 1/0 — the common case) is still recognized below.
-        if (record?.getManufacturerSpecificData(WESTSHORE_COMPANY_ID) != null) {
+        val identity = record?.getManufacturerSpecificData(WESTSHORE_COMPANY_ID)
+        if (identity != null) {
             recognizedNodeCache[macUpper] = SystemClock.elapsedRealtime()
+            // Forward the relay's "fw=<ver>+<elf8>;rf=<n>" tag with its heartbeat
+            // (backend stores firmware_version; unknown fields are ignored).
+            OdidParser.parseFirmwareTag(identity)?.let { tag ->
+                heartbeat?.markNodeFirmware(macUpper.replace(":", "").replace("-", ""), tag)
+            }
             return true
         }
 

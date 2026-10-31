@@ -65,6 +65,16 @@ final class WSWNodeHeartbeatUploader {
         timer = nil
     }
 
+    // deviceId -> latest firmware tag from the node's 0x08FE identity advert
+    // (only reaches this code when iOS delivers that extended advert at all).
+    private var firmwareByDevice: [String: WSWOdidParser.FirmwareTag] = [:]
+
+    func markNodeFirmware(_ deviceId: String, _ tag: WSWOdidParser.FirmwareTag) {
+        if deviceId.isEmpty { return }
+        lock.lock(); defer { lock.unlock() }
+        firmwareByDevice[deviceId] = tag
+    }
+
     func markNodeSeen(_ deviceId: String) {
         if deviceId.isEmpty { return }
         lock.lock(); defer { lock.unlock() }
@@ -104,6 +114,15 @@ final class WSWNodeHeartbeatUploader {
 
     private func postHeartbeat(baseUrl: String, token: String, deviceId: String, loc: CLLocation?) {
         var bodyObj: [String: Any] = ["connection_type": "ble_relay"]
+        // Stored as nodes.firmware_version (COALESCE: absent = unchanged);
+        // firmware_build / relay_format are informational and ignored by the
+        // backend today.
+        lock.lock(); let fw = firmwareByDevice[deviceId]; lock.unlock()
+        if let fw = fw {
+            bodyObj["firmware_version"] = fw.version
+            if let b = fw.build { bodyObj["firmware_build"] = b }
+            if let rf = fw.relayFormat { bodyObj["relay_format"] = rf }
+        }
         if let loc = loc {
             bodyObj["last_lat"] = loc.coordinate.latitude
             bodyObj["last_lon"] = loc.coordinate.longitude

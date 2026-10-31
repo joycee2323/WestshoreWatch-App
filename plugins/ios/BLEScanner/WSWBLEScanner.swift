@@ -295,6 +295,11 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
                 stateLock.lock(); peripheralToDeviceId[pid] = mac; stateLock.unlock()
                 nodeDeviceId = mac
                 logOnce("id:\(pid):\(mac)", "identity recovered pid=\(pid) -> mac=\(mac)")
+                if let fw = WSWOdidParser.parseFirmwareTag([UInt8](mfg)) {
+                    heartbeat.markNodeFirmware(mac, fw)
+                    logOnce("fw:\(mac):\(fw.version)",
+                            "firmware tag mac=\(mac) version=\(fw.version) rf=\(fw.relayFormat.map(String.init) ?? "-")")
+                }
             }
 
             // Recover device_id from the detection advert itself (company
@@ -488,7 +493,8 @@ final class WSWBLEScanner: RCTEventEmitter, CBCentralManagerDelegate, CLLocation
             id: uasId, lat: lat, lon: lon, alt: parsed.altGeo, spd: parsed.speedHoriz,
             hdg: parsed.heading, opLat: parsed.opLat, opLon: parsed.opLon,
             odidTimestamp: parsed.odidTimestamp,
-            status: parsed.status, height: parsed.height, vspd: parsed.speedVert
+            status: parsed.status, height: parsed.height, vspd: parsed.speedVert,
+            decoder: parsed.decoder, locRaw: parsed.locRaw
         ))
     }
 

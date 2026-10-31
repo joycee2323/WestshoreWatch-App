@@ -18,7 +18,7 @@ export interface OdidDetection {
   altGeo?: number;
   speedHoriz?: number;
   heading?: number;
-  status?: number; // 0=undeclared, 1=ground, 2=airborne, 3=emergency (4-15 reserved → undefined)
+  status?: number; // 0=undeclared, 1=ground, 2=airborne, 3=emergency, 4=RID system failure (5-15 reserved → undefined)
   // Location bytes 17-18: height (m, raw * 0.5 - 1000) relative to heightType.
   // undefined = unknown/invalid.
   height?: number;
@@ -38,6 +38,15 @@ export interface OdidDetection {
   // BLEScannerService.kt + DetectionUploader.kt), but kept in parity so
   // any JS-side consumer has the same signal available.
   odidTimestamp?: number;
+  // Relay format 2 (X1/M1 firmware >= 1.4-westshore, see RELAY_FORMAT_SPEC):
+  // set ONLY when a Westshore relay Pack carried the drone's own ASTM Location
+  // message. speedHoriz / heading then come from that spec message; every
+  // other field still comes from the legacy message, exactly as before.
+  // decoder / locRaw are uploaded so the backend marks speed/heading reliable;
+  // absent = legacy decode (the backend keeps flagging it).
+  decoder?: string;    // 'odid-spec-1'
+  locRaw?: string;     // 50 lowercase hex chars: the drone's 25-byte Location message
+  relayFormat?: number;
   lastSeen: number;
 }
 
@@ -46,9 +55,41 @@ export const OP_STATUS_AIRBORNE = 2;
 
 // ASTM F3411 / opendroneid invalid-or-unknown encodings → undefined, never a
 // bogus number. Mirrors OdidParser.kt / WSWOdidParser.swift.
-export const OP_STATUS_MAX_VALID = 3;    // 4..15 reserved
+export const OP_STATUS_MAX_VALID = 4;    // 4 = RID system failure (F3411-22a); 5..15 reserved
 export const ALT_INVALID_MAX_M = -999.75; // raw 0 = -1000 m (altitudes, height)
 export const VSPEED_MAX_VALID_MPS = 62;   // 63 m/s = invalid
+
+// Relay format 2 — WestshoreWatch-Firmware WSW-Firmware/main/odid_encoder.h
+// (tag x1m1-1.4-westshore). The relay Pack's byte 1 is (rf << 5) | count;
+// message 4 is the drone's own ASTM F3411 Location with its type nibble set to
+// MSG_SPEC_LOCATION (0xE, reserved) so pre-1.2.5 apps skip it. rf is read from
+// the Pack itself, never inferred: handle-0 per-message frames from the same
+// relay stay in the legacy layout and are decoded the legacy way.
+export const RELAY_FORMAT_SPEC = 2;
+export const MSG_SPEC_LOCATION = 0xE;
+export const DECODER_SPEC = 'odid-spec-1';
+
+// ASTM F3411 / opendroneid Location bytes 1-4: byte 1 bit 0 SpeedMult, bit 1
+// EWDirection; byte 2 = direction 0..179 (+180 with EW); >= 180 (opendroneid
+// writes 361 as 181 + EW) = unknown; speed = mult ? raw*0.75 + 63.75 :
+// raw*0.25, with raw 255 + mult = unknown (255 m/s). Lat/lon as doubles.
+export function parseSpecLocationKinematics(msg: Uint8Array): {
+  heading?: number; speedHoriz?: number; lat: number; lon: number;
+} {
+  const mult = msg[1] & 0x01;
+  const ew = (msg[1] >> 1) & 0x01;
+  const dir = msg[2];
+  const raw = msg[3];
+  const heading = dir >= 180 ? undefined : dir + (ew ? 180 : 0);
+  const speedHoriz = mult && raw === 255 ? undefined : (mult ? raw * 0.75 + 63.75 : raw * 0.25);
+  return { heading, speedHoriz, lat: readInt32LE(msg, 5) / 1e7, lon: readInt32LE(msg, 9) / 1e7 };
+}
+
+function toHex(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += (bytes[i] < 16 ? '0' : '') + bytes[i].toString(16);
+  return s;
+}
 
 function readInt32LE(buf: Uint8Array, offset: number): number {
   return (buf[offset] | (buf[offset+1] << 8) | (buf[offset+2] << 16) | (buf[offset+3] << 24));
@@ -139,13 +180,28 @@ function parsePack(data: Uint8Array): Partial<OdidDetection> {
   const msgType = (data[0] >> 4) & 0x0F; // 0xF for a pack
   if (data.length < 2) return { msgType };
   const msgCount = data[1] & 0x1F;
+  const relayFormat = (data[1] >> 5) & 0x07;
   let result: Partial<OdidDetection> = {};
+  let spec: Uint8Array | null = null;
   for (let i = 0; i < msgCount; i++) {
     const offset = 2 + i * 25;
     if (offset + 25 > data.length) break;
     const msg = data.slice(offset, offset + 25);
+    if (((msg[0] >> 4) & 0x0F) === MSG_SPEC_LOCATION) { spec = msg; continue; }
     const parsed = parseOdidMessage(msg);
     result = { ...result, ...parsed };
+  }
+  // Relay format 2: speed / heading from the drone's own spec message, only
+  // when the Pack says so AND a legacy Location was decoded alongside it.
+  if (relayFormat === RELAY_FORMAT_SPEC && spec && result.hasLocation) {
+    const k = parseSpecLocationKinematics(spec);
+    const original = spec.slice();
+    original[0] = (0x1 << 4) | (spec[0] & 0x0F);   // restore type 1 (Location)
+    result = {
+      ...result,
+      speedHoriz: k.speedHoriz, heading: k.heading,
+      decoder: DECODER_SPEC, locRaw: toHex(original), relayFormat,
+    };
   }
   // Override sub-messages' msgType so the caller sees this was a pack.
   return { ...result, msgType };

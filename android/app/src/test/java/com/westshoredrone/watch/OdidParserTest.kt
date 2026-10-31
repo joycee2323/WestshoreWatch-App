@@ -72,6 +72,7 @@ class OdidParserTest {
         Triple("status 0 (undeclared)", Loc(status = 0), mapOf("status" to 0)),
         Triple("status 2 (airborne)", Loc(status = 2), mapOf("status" to 2)),
         Triple("status 3 (emergency)", Loc(status = 3), mapOf("status" to 3)),
+        Triple("status 4 (RID system failure) is a valid status", Loc(status = 4), mapOf("status" to 4)),
         Triple("status 5 (reserved) is unknown", Loc(status = 5), mapOf("status" to null)),
         Triple("status 15 (reserved) is unknown", Loc(status = 15), mapOf("status" to null)),
         Triple("height type 1 (above ground) does not disturb status", Loc(heightType = 1),
@@ -127,5 +128,89 @@ class OdidParserTest {
         assertEquals(1, r.status)
         assertEquals(-1.0, r.height!!, 0.0)
         assertEquals(0.5, r.speedVert!!, 0.0)
+    }
+
+    // ── Relay format 2: vectors generated from the firmware (test/vectors/README.md).
+    // The same file is read by test/relayFormat.test.mjs.
+    private data class Vec(
+        val name: String, val legacy: ByteArray, val rf2: ByteArray, val droneLoc: String,
+        val hdg: Double?, val spd: Double?, val status: Int,
+    )
+
+    private fun hex(s: String) = ByteArray(s.length / 2) { i -> s.substring(2 * i, 2 * i + 2).toInt(16).toByte() }
+
+    private fun vectors(): List<Vec> {
+        val f = listOf("../../test/vectors/relay_format_2_vectors.txt", "test/vectors/relay_format_2_vectors.txt")
+            .map { java.io.File(it) }.first { it.exists() }
+        return f.readLines().filter { it.isNotBlank() }.map { line ->
+            val c = line.trim().split(';')
+            Vec(c[0], hex(c[1]), hex(c[2]), c[3],
+                c[4].takeIf { it != "-" }?.toDouble(), c[5].takeIf { it != "-" }?.toDouble(), c[6].toInt())
+        }
+    }
+
+    @Test
+    fun relayFormat2Vectors() {
+        val vs = vectors()
+        assertEquals(310, vs.size)
+        for (v in vs) {
+            val old = parse(v.legacy)
+            val neu = parse(v.rf2)
+            // 1.3 relay Pack: the 1.2.4 decode, no spec claim.
+            assertNull("${v.name}: legacy decoder", old.decoder)
+            assertNull("${v.name}: legacy locRaw", old.locRaw)
+            // 1.4 relay Pack: legacy-message fields identical to the 1.3 decode ...
+            assertEquals("${v.name}: uasId", old.uasId, neu.uasId)
+            assertEquals("${v.name}: lat", old.lat, neu.lat)
+            assertEquals("${v.name}: lon", old.lon, neu.lon)
+            assertEquals("${v.name}: altGeo", old.altGeo, neu.altGeo)
+            assertEquals("${v.name}: status", old.status, neu.status)
+            assertEquals("${v.name}: height", old.height, neu.height)
+            assertEquals("${v.name}: speedVert", old.speedVert, neu.speedVert)
+            assertEquals("${v.name}: odidTimestamp", old.odidTimestamp, neu.odidTimestamp)
+            assertEquals("${v.name}: opLat", old.opLat, neu.opLat)
+            // ... speed / heading from the spec message, decoder + raw bytes set.
+            assertEquals("${v.name}: decoder", OdidParser.DECODER_SPEC, neu.decoder)
+            assertEquals("${v.name}: locRaw", v.droneLoc, neu.locRaw)
+            if (v.hdg == null) assertNull("${v.name}: unknown heading", neu.heading)
+            else assertEquals("${v.name}: heading", v.hdg, neu.heading!!, 0.01)
+            if (v.spd == null) assertNull("${v.name}: unknown speed", neu.speedHoriz)
+            else assertEquals("${v.name}: speed", v.spd, neu.speedHoriz!!, 0.006)
+            assertEquals("${v.name}: status 0-4 valid", if (v.status <= 4) v.status else null, neu.status)
+        }
+    }
+
+    @Test
+    fun relayFormat2HeadlineCase() {
+        val v = vectors().first { it.name == "airborne_dir271_spd10" }
+        assertEquals(45.0, parse(v.legacy).heading!!, 0.0)
+        assertEquals(30.0, parse(v.legacy).speedHoriz!!, 0.0)
+        assertEquals(271.0, parse(v.rf2).heading!!, 0.0)
+        assertEquals(10.0, parse(v.rf2).speedHoriz!!, 0.0)
+    }
+
+    @Test
+    fun rfBitsOrSpecMessageAloneNeverClaimSpec() {
+        val v = vectors().first { it.name == "airborne_dir271_spd10" }
+        val a = v.rf2.copyOf(); a[1] = ((2 shl 5) or 3).toByte()   // rf=2, spec message not counted
+        assertNull(parse(a).decoder)
+        val b = v.rf2.copyOf(); b[1] = 4                            // spec message, rf=0
+        assertNull(parse(b).decoder)
+        assertEquals(parse(v.legacy).heading, parse(b).heading)
+    }
+
+    @Test
+    fun firmwareTagFromIdentityAdvert() {
+        // Android manufacturer data excludes the company id: [MAC(6)][api_key][0x00][tag]
+        val mac = byteArrayOf(0x38, 0x44, 0xBE.toByte(), 0xA5.toByte(), 0x07, 0xEE.toByte())
+        val payload = mac + "abcd1234".toByteArray() + byteArrayOf(0) + "fw=1.4-westshore+cae941a7;rf=2".toByteArray()
+        val t = OdidParser.parseFirmwareTag(payload)!!
+        assertEquals("1.4-westshore", t.version)
+        assertEquals("cae941a7", t.build)
+        assertEquals(2, t.relayFormat)
+        val old = OdidParser.parseFirmwareTag(mac + "abcd1234".toByteArray() + byteArrayOf(0) + "fw=1.3-westshore+b1443bb3".toByteArray())!!
+        assertEquals("1.3-westshore", old.version)
+        assertNull(old.relayFormat)
+        assertNull(OdidParser.parseFirmwareTag(mac + "abcd1234".toByteArray()))   // pre-fw-tag firmware
     }
 }

@@ -93,13 +93,18 @@ class DetectionUploader(private val handler: Handler, private val context: Conte
         // populated it); backend treats missing as "skip the gate".
         val odidTimestamp: Int?,
         // Grounded-aircraft fields (backend services/groundedState.js), same
-        // names/units as the Sentinel upload: ODID status 0-3, height m,
+        // names/units as the Sentinel upload: ODID status 0-4, height m,
         // vertical speed m/s positive up. null = unknown/invalid (the parser
         // maps the ODID invalid sentinels to null). Defaulted so any record
         // built without them still uploads, with nulls.
         val status: Int? = null,
         val height: Double? = null,
         val vspd: Double? = null,
+        // Relay format 2 only: 'odid-spec-1' + the drone's 25-byte Location as
+        // 50 hex chars. null on legacy frames -> the keys are not sent at all,
+        // exactly the 1.2.4 body, and the backend keeps flagging the row.
+        val decoder: String? = null,
+        val locRaw: String? = null,
     )
 
     fun configure(baseUrl: String?, authToken: String?) {
@@ -263,6 +268,10 @@ class DetectionUploader(private val handler: Handler, private val context: Conte
             o.put("status", d.status ?: JSONObject.NULL)
             o.put("height", d.height ?: JSONObject.NULL)
             o.put("vspd", d.vspd ?: JSONObject.NULL)
+            if (d.decoder != null && d.locRaw != null) {
+                o.put("decoder", d.decoder)
+                o.put("loc_raw", d.locRaw)
+            }
             dronesJson.put(o)
         }
         val bodyJson = JSONObject().put("drones", dronesJson).toString()

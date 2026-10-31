@@ -37,6 +37,8 @@ class NodeHeartbeatUploader(
 
     // deviceId -> elapsed-realtime ms when most recent BLE was observed.
     private val lastSeen = ConcurrentHashMap<String, Long>()
+    // deviceId -> latest firmware tag from the node's 0x08FE identity advert.
+    private val firmwareByDevice = ConcurrentHashMap<String, OdidParser.FirmwareTag>()
 
     // deviceId -> true once a 404 has been logged. Mirrors the JS
     // loggedMissingHeartbeatNodes Set so we don't spam logs per cycle.
@@ -92,6 +94,10 @@ class NodeHeartbeatUploader(
         Log.d(TAG, "stop: heartbeat loop cancelled")
     }
 
+    fun markNodeFirmware(deviceId: String, tag: OdidParser.FirmwareTag) {
+        firmwareByDevice[deviceId] = tag
+    }
+
     fun markNodeSeen(deviceId: String) {
         if (deviceId.isBlank()) return
         lastSeen[deviceId] = SystemClock.elapsedRealtime()
@@ -140,6 +146,14 @@ class NodeHeartbeatUploader(
     private fun postHeartbeat(baseUrl: String, token: String, deviceId: String, loc: Location?) {
         val body = JSONObject().apply {
             put("connection_type", "ble_relay")
+            // Stored as nodes.firmware_version (COALESCE: absent = unchanged).
+            // firmware_build / relay_format are informational; the backend
+            // ignores fields it does not know.
+            firmwareByDevice[deviceId]?.let { fw ->
+                put("firmware_version", fw.version)
+                fw.build?.let { put("firmware_build", it) }
+                fw.relayFormat?.let { put("relay_format", it) }
+            }
             if (loc != null) {
                 put("last_lat", loc.latitude)
                 put("last_lon", loc.longitude)

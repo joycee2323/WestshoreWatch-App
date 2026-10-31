@@ -536,6 +536,7 @@ export async function startBleScanning(
         status: parsed.status ?? null,
         height: parsed.height ?? null,
         vspd: parsed.speedVert ?? null,
+        ...(parsed.decoder && parsed.locRaw ? { decoder: parsed.decoder, loc_raw: parsed.locRaw } : {}),
       });
     }
 

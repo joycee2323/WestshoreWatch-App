@@ -6,7 +6,8 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "eas-build-post-install": "node scripts/eas-google-services.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

@@ -26,12 +26,16 @@ final class WSWDetectionUploader {
         // Nullable for forward compat; backend treats missing as "skip the gate".
         let odidTimestamp: Int?
         // Grounded-aircraft fields — same names/units as the Sentinel upload
-        // and DetectionUploader.kt: ODID status 0-3, height m, vertical speed
+        // and DetectionUploader.kt: ODID status 0-4, height m, vertical speed
         // m/s positive up. nil = unknown/invalid → JSON null. Defaulted so a
         // record built without them still uploads, with nulls.
         var status: Int? = nil
         var height: Double? = nil
         var vspd: Double? = nil
+        // Relay format 2 only: 'odid-spec-1' + the drone's Location as 50 hex
+        // chars. nil on legacy frames -> the keys are not sent (1.2.4 body).
+        var decoder: String? = nil
+        var locRaw: String? = nil
     }
 
     // deviceId -> (uasId -> latest record). Coalesces repeat sightings within a
@@ -183,7 +187,7 @@ final class WSWDetectionUploader {
     private func postBatch(baseUrl: String, token: String, deviceId: String, drones: [DroneRecord]) {
         var dronesJson: [[String: Any]] = []
         for d in drones {
-            dronesJson.append([
+            var o: [String: Any] = [
                 "id": d.id,
                 "lat": d.lat,
                 "lon": d.lon,
@@ -196,7 +200,12 @@ final class WSWDetectionUploader {
                 "status": d.status as Any? ?? NSNull(),
                 "height": d.height as Any? ?? NSNull(),
                 "vspd": d.vspd as Any? ?? NSNull(),
-            ])
+            ]
+            if let dec = d.decoder, let raw = d.locRaw {
+                o["decoder"] = dec
+                o["loc_raw"] = raw
+            }
+            dronesJson.append(o)
         }
         let bodyObj: [String: Any] = ["drones": dronesJson]
         guard let body = try? JSONSerialization.data(withJSONObject: bodyObj),
