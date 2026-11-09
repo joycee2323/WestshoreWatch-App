@@ -21,3 +21,14 @@ test('no live node: the flight list alone; nothing at all → em dash', () => {
   assert.equal(detectedByNodesLabel(undefined, null), '—');
   assert.equal(detectedByNodesLabel('  ', [null, { name: '' }]), '—');
 });
+
+test('redacted cross-org nodes read "Partner node" / "Partner node ×N", never blank or undefined', () => {
+  const partner3 = { id: null, name: 'Partner node', redacted: true, count: 3 };
+  const partner1 = { id: null, name: 'Partner node', redacted: true, count: 1 };
+  assert.equal(detectedByNodesLabel('North Gate X1', [{ id: 'n', name: 'North Gate X1' }, partner3]), 'North Gate X1, Partner node ×3');
+  // Live node itself redacted: listed once, via the flight entry.
+  assert.equal(detectedByNodesLabel('Partner node', [{ id: 'n', name: 'North Gate X1' }, partner1]), 'North Gate X1, Partner node');
+  assert.equal(detectedByNodesLabel('Partner node', []), 'Partner node');
+  assert.equal(detectedByNodesLabel('Partner node', undefined), 'Partner node');
+  assert.equal(detectedByNodesLabel(undefined, [{ id: 'x', name: undefined }]), '—');
+});
