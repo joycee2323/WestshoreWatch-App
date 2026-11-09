@@ -57,7 +57,7 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
 
 // Nearest online node with coords within radiusM of (lat, lon), or null.
 // Works uniformly for portable nodes (last_lat/lon IS the relaying phone's
-// own GPS — NodeHeartbeatUploader posts it every 30s), cellular X1s (their
+// own GPS — NodeHeartbeatUploader posts it every 30s), LTE-X1s (their
 // own onboard GPS on the same heartbeat cadence), and Sentinels (dashboard-
 // set, static — matches only when the operator is actually on-site).
 function findNearbyNode(nodeList: any[], lat: number, lon: number, radiusM: number): any | null {

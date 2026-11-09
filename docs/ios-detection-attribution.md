@@ -57,7 +57,7 @@ endpoint + auth, not by any payload flag:
 
 | Path | Route (file:line) | Auth | `node_id` stored |
 |---|---|---|---|
-| Sentinel / cellular X1 **direct** | `POST /api/detections` — `routes/detections.js:39` | API-key (`authenticateNode`) | `req.node.id` (always) |
+| Sentinel / LTE-X1 **direct** | `POST /api/detections` — `routes/detections.js:39` | API-key (`authenticateNode`) | `req.node.id` (always) |
 | **Node-relay** (drone→node→BLE→phone) | `POST /api/nodes/:device_id/detections` — `routes/nodes.js:538` | JWT **or** API-key (`authenticateNodeOrUser`) | relaying `node.id` |
 | **Node-less** ("`user_nodeless`") | `POST /api/deployments/:deploymentId/detections` — `routes/deployments.js:1078` | user JWT (`authenticate`) | `NULL` |
 

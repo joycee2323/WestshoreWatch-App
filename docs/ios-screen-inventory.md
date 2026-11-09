@@ -4,7 +4,7 @@ Phase 0, step 1 of the Westshore Watch iOS port. This document captures the
 audit of every screen in the existing React Native Android app and the
 decisions made about how each one ships on iOS.
 
-The iOS app is **viewer-only**. Portable nodes (M1, X1, X1 Cellular) require
+The iOS app is **viewer-only**. Portable nodes (M1, X1, LTE-X1) require
 an Android companion device to relay Remote ID broadcasts; Sentinel runs
 standalone. iOS users see everything their organization's nodes detect, but
 cannot pair portable nodes from an iPhone or iPad.
@@ -160,7 +160,7 @@ replaced entirely on iOS.
 
 > **PAIRING UNAVAILABLE ON iOS**
 >
-> Westshore Watch portable nodes (M1, X1, X1 Cellular) pair with an Android
+> Westshore Watch portable nodes (M1, X1, LTE-X1) pair with an Android
 > companion device that handles Remote ID detection relay. Sentinel
 > stationary nodes pair through their own setup process.
 >
