@@ -1,3 +1,4 @@
+import { detectedByNodesLabel } from '../services/detectedByNodes';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View, Text, TextInput, StyleSheet, TouchableOpacity, Platform, PermissionsAndroid, AppState, Linking, Alert, DeviceEventEmitter, ActivityIndicator,
@@ -1891,7 +1892,12 @@ export default function LiveMapScreen() {
         // Resolve source node name from the registry by BLE MAC.
         const srcMac = liveDrone.sourceMac;
         const sourceNode = srcMac ? getNodeByMac(srcMac) : null;
-        const nodeName = sourceNode?.name || liveDrone.node_name || '—';
+        // Live node plus every node that recorded this flight (backend
+        // current_flight_nodes, migration 089) — services/detectedByNodes.
+        const nodeName = detectedByNodesLabel(
+          sourceNode?.name || liveDrone.node_name,
+          liveDrone.current_flight_nodes,
+        );
 
         const uasId = liveDrone.uasId || liveDrone.uas_id || liveDrone.mac;
         const nickname = nicknames[uasId] || '';
