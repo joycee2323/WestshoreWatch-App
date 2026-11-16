@@ -273,6 +273,14 @@ export const api = {
     request('POST', '/share-links', { deployment_id: deploymentId, include_operator_location: includeOperatorLocation }),
   revokeShareLink: (id: string) => request('PATCH', `/share-links/${encodeURIComponent(id)}/revoke`),
   extendDeployment: (id: string) => request('POST', `/deployments/${id}/extend`),
+  // Live video (backend routes/live.js). liveSessions('open') = live or
+  // reconnecting. createLiveLink returns { url } once: 'member' links are
+  // this user's own viewer (WebView), 'manual' links are for sharing to one
+  // other person.
+  liveSessions: (scope: 'open' | 'recent' = 'open') =>
+    request('GET', `/live/sessions?scope=${scope}`),
+  createLiveLink: (sessionId: string, kind: 'member' | 'manual', label?: string) =>
+    request('POST', `/live/sessions/${encodeURIComponent(sessionId)}/links`, { kind, ...(label ? { label } : {}) }),
   cancelDeployment: (id: string) => request('POST', `/deployments/${id}/cancel`),
   pauseDeployment: (id: string) => request('POST', `/deployments/${id}/pause`),
   resumeDeployment: (id: string) => request('POST', `/deployments/${id}/resume`),
