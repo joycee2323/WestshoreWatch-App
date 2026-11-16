@@ -306,6 +306,18 @@ export default function SettingsScreen() {
         </TouchableOpacity>
       )}
 
+      {/* Live video — any signed-in member can watch and share a one-person link. */}
+      <View style={s.rowCard}>
+        <SettingRow
+          colors={colors}
+          label="Live video"
+          subtitle="Watch drone live video and share a link"
+          right={<Text style={s.chevron}>›</Text>}
+          onPress={() => navigation.navigate('LiveVideo')}
+          isLast={true}
+        />
+      </View>
+
       {/* Partner Sharing — admin-only cross-org data-sharing management. */}
       {c.canManagePartnerSharing && (
         <View style={s.rowCard}>
