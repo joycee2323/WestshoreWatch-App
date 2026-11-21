@@ -1,0 +1,106 @@
+# Android Auto: decisions log
+
+Running log of judgment calls, blockers, and workarounds for the
+`feature/android-auto` branch. Newest entries at the bottom. Times are local (EST).
+
+---
+
+**2026-11-21 06:00 · Branch base: `origin/master`, not local `master`.**
+Local `master` was 39 commits behind `origin/master` (last fetch). Those commits
+include changes to `DetectionUploader.kt`, `BLEScannerService.kt`, `OdidParser.kt`
+and `app.config.js`, the exact files this feature touches. Branching from stale
+local master would have produced conflicts in the files I hook into, and the
+branch would have carried 39 commits that are already merged upstream.
+`origin/master` was already present as a local ref, so no network call or
+remote change was involved. Local `master` was not touched (no fast-forward).
+Effect for review: use `git log origin/master..feature/android-auto --stat`
+(or fast-forward local master first). `git log master..feature/android-auto`
+would also list the 39 upstream commits.
+
+**2026-11-21 06:00 · Separate worktree at `C:\dev\WestshoreWatch-auto`.**
+The shared checkout `C:\dev\WestshoreWatch` stays on `master`, untouched, so other
+sessions using it aren't disturbed. The branch lives in the main repo's `.git`,
+so `git log … feature/android-auto` works from either directory.
+`npm ci` ran inside the worktree only. The gitignored `google-services.json`
+was copied from the main checkout so Gradle builds. It is still gitignored and
+not committed.
+
+**2026-11-21 06:10 · Wear repo used as a read-only reference.**
+`WestshoreWatch-Wear` already has a native OkHttp WebSocket client (`WsManager`)
+and drone registry for the same backend feed. I mirrored its patterns
+(SUBSCRIBE_ORG on every open, server `last_seen` parsing, backoff) instead of
+re-deriving them. No file in that repo was modified. The backend repo was also
+read (read-only) to confirm the `DRONE_UPDATE` row shape and `/api/detections/recent`.
+
+**2026-11-21 06:15 · Eviction windows: 15 s silence, 5 s grounded.**
+These are the firmware defaults (`nvs_config.c`: `silent_timeout_s = 15`,
+`land_timeout_s = 5`). The phone app's own stores use longer windows (BLE 30 s,
+backend 60 s), which suit a map you study, not a glanceable car list. The backend
+already stops broadcasting grounded drones (`groundedState`; REST excludes them
+by default), so the 5 s grounded rule only matters for locally-relayed BLE frames.
+For those it uses the same on-ground test as `src/services/onGround.ts`
+(status 1, speed ≤ 0.5 m/s, height ≤ 3 m or unknown).
+
+**2026-11-21 06:20 · Auth token: read expo-secure-store natively, read-only.**
+The car service must work when JS has never run in this process (Android Auto can
+cold-start the `CarAppService`). `UploadConfig.authToken` is in-memory only and is
+populated by JS. So the car code reads the JWT the same way expo-secure-store 15.0.8
+does: SharedPreferences `SecureStore`, key `key_v1-auth_token`, AES-GCM key from
+AndroidKeyStore alias `AES/GCM/NoPadding:key_v1[:keystoreUnauthenticated]`. It never
+writes. `UploadConfig.authToken` is the fallback. Rejected alternative: persisting
+a second copy of the token from `BLEScannerModule.configure`. That doubles where the
+secret lives and changes an existing code path.
+Risk: this is coupled to expo-secure-store's private storage format. It's guarded
+(any failure → fallback → "sign in on phone" screen) and documented in STATUS.
+
+**2026-11-21 06:25 · No DHU / emulator available.**
+The SDK has no `extras/google/auto` (DHU), no `cmdline-tools` (no `sdkmanager`), no
+`system-images`, no AVDs, and `adb devices` is empty. The DHU also needs a phone
+running Android Auto in developer mode ("Start head unit server"). Installing the SDK
+tooling needs Android Studio's SDK Manager or a manual cmdline-tools download, and
+even then a phone is still required. Decision: skip, and rely on JVM unit tests plus
+a manual DHU/in-car checklist in `docs/android-auto.md`. No screenshots could be produced.
+
+**2026-11-21 06:30 · Library version `androidx.car.app:app:1.7.0` (+ `app-projected`).**
+1.7.0 is the latest stable (2025-07-16, includes the CVE-2024-10382 fix). 1.8.0 is
+only at rc01. The library does not auto-merge the
+`com.google.android.gms.car.application` meta-data (verified in the AARs), so we
+declare it.
+
+**2026-11-21 06:30 · Template: `PlaceListMapTemplate`, not `MapWithContentTemplate`.**
+With `PlaceListMapTemplate` the host draws the map. `MapWithContentTemplate` requires
+the app to render its own map onto a car Surface (Mapbox Android Auto extension or
+custom rendering), which is a big, untestable-tonight dependency. `PlaceListMapTemplate`
+is not deprecated in 1.7.0 and is the template Google designs for POI lists.
+
+**2026-11-21 06:30 · Template quota strategy (the main design risk).**
+The host allows 5 templates per task. `PlaceListMapTemplate` updates are free only when
+the title, row count, and row titles are unchanged (or the previous template was loading,
+or the update answers a user refresh). A live drone list changes membership, which
+would burn quota, and the 6th counted template kills the app. Strategy:
+1. Row titles are only names. Distances, ages, altitudes and speeds live in the text
+   lines, which the refresh check ignores.
+2. Sticky order: rows don't reorder while the set of drones is unchanged (also less
+   distracting for a driver).
+3. If the host reports `ConstraintManager.isAppDrivenRefreshEnabled()` (Car API 6+),
+   membership changes are pushed directly. Per the API doc that does not count.
+4. Otherwise membership changes are held. Existing rows keep updating (a vanished drone
+   reads "signal lost"), a CarToast announces new drones, and the header refresh button
+   (user-initiated refresh = free) applies them. Returning from the detail screen
+   (a back operation = free) also applies them.
+5. `minCarApiLevel = 5` so the refresh listener (API 5) is always available.
+
+**2026-11-21 06:30 · Update throttle: 3 s minimum between data-driven invalidates.**
+No numeric rate limit is published (checked the PlaceListMapTemplate, Screen, and
+ConstraintManager sources and the quality guidelines). The brief asked for ~2–3 s,
+so I used the safer end. Initial content, user refresh, and back navigation are not throttled.
+
+**2026-11-21 06:32 · iOS fingerprint must not change.**
+iOS `runtimeVersion` is `fingerprint`, which hashes the expo config (incl. the plugins
+array) and every local config-plugin module. Adding `./plugins/withAndroidAuto` would
+change the iOS fingerprint and stop OTA updates reaching shipped iOS builds, even
+though iOS gains nothing. Fix: `fingerprint.config.js` gets `ignorePaths` for the
+plugin module plus a `fileHookTransform` that removes the plugin's entry from the
+`expoConfig` contents before hashing. Android is unaffected because its
+runtimeVersion is a literal string. To verify: the local iOS fingerprint must stay
+`3ea5e99fc169b458f4c70559607b1adb06b7ac0b` (the value measured on `origin/master`).

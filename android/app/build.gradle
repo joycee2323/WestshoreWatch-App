@@ -193,3 +193,25 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+// @generated begin withAndroidAuto - Android Auto (Car App Library). Managed by plugins/withAndroidAuto.js; edit there.
+// The car code lives outside android/ (plugins/android/AndroidAuto) so that
+// `expo prebuild` can never wipe it.
+android {
+    sourceSets {
+        main {
+            java.srcDirs += ["${rootDir}/../plugins/android/AndroidAuto/src/main/java"]
+            res.srcDirs += ["${rootDir}/../plugins/android/AndroidAuto/src/main/res"]
+        }
+        test {
+            java.srcDirs += ["${rootDir}/../plugins/android/AndroidAuto/src/test/java"]
+        }
+    }
+}
+dependencies {
+    implementation("androidx.car.app:app:1.7.0")
+    implementation("androidx.car.app:app-projected:1.7.0")
+    // Real org.json for JVM unit tests (android.jar only ships stubs).
+    testImplementation("org.json:json:20240303")
+}
+// @generated end withAndroidAuto

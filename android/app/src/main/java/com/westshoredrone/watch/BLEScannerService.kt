@@ -495,6 +495,13 @@ class BLEScannerService : Service() {
                 locRaw = parsed.locRaw,
             ),
         )
+        // Android Auto: offer the same detection to the car list. Returns at once
+        // (no-op) unless a car session is running; never throws. See
+        // plugins/android/AndroidAuto/.../LocalDetectionTap.kt.
+        com.westshoredrone.watch.auto.LocalDetectionTap.onLocalDetection(
+            effectiveUasId, lat, lon, parsed.height, parsed.speedHoriz, parsed.heading,
+            parsed.opLat, parsed.opLon, parsed.status, parsed.decoder != null,
+        )
     }
 
     private fun isWestshoreWatchNode(macUpper: String, record: ScanRecord?): Boolean {
