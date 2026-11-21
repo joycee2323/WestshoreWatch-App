@@ -170,3 +170,8 @@ under Robolectric. Two `internal` test seams were added to `AutoController`
 **2026-11-21 07:25 · `setTitle`/`setHeaderAction` kept despite deprecation.**
 The replacement `setHeader(Header)` is `@RequiresCarApi(7)`, and we support hosts from
 API 5. Warnings are suppressed with a comment.
+
+**2026-11-21 07:45 · Done; stopping.**
+All deliverables written and committed. Final verification from a clean Gradle build is
+recorded in `android-auto-STATUS.md`. No extra features started. Not done on purpose:
+versionCode bump, PR, push, EAS build.
