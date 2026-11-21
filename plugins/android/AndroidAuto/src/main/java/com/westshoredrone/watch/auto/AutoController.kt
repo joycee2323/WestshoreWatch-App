@@ -52,8 +52,11 @@ class AutoController(context: Context) : DefaultLifecycleObserver {
         if (!hasInitialData) { hasInitialData = true; notifyChanged() }
     }
 
+    /** Test seam: fixed origin for template tests (Robolectric has no location fix). */
+    internal var originOverride: LatLon? = null
+
     val origin: LatLon?
-        get() = location.last?.let { LatLon(it.latitude, it.longitude) }
+        get() = originOverride ?: location.last?.let { LatLon(it.latitude, it.longitude) }
 
     fun hasLocationPermission(): Boolean = location.hasPermission()
 
@@ -96,6 +99,9 @@ class AutoController(context: Context) : DefaultLifecycleObserver {
     }
 
     fun retryFeed() = feed.retryNow()
+
+    /** Test seam: feed observations as if they came from the backend/local feeds. */
+    internal fun ingestForTest(obs: List<DroneObservation>) = ingest(obs)
 
     private fun ingest(obs: List<DroneObservation>) {
         val now = System.currentTimeMillis()

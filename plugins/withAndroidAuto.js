@@ -49,12 +49,21 @@ android {
             java.srcDirs += ["\${rootDir}/../plugins/android/AndroidAuto/src/test/java"]
         }
     }
+    // Robolectric template tests (ScreenTemplatesTest) need merged resources.
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+        }
+    }
 }
 dependencies {
     implementation("androidx.car.app:app:${CAR_APP_VERSION}")
     implementation("androidx.car.app:app-projected:${CAR_APP_VERSION}")
     // Real org.json for JVM unit tests (android.jar only ships stubs).
     testImplementation("org.json:json:20240303")
+    // Builds the real templates in JVM tests so the library's validation runs.
+    testImplementation("androidx.car.app:app-testing:${CAR_APP_VERSION}")
+    testImplementation("org.robolectric:robolectric:4.14.1")
 }
 ${END}`;
 

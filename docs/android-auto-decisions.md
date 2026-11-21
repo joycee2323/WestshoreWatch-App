@@ -104,3 +104,69 @@ plugin module plus a `fileHookTransform` that removes the plugin's entry from th
 `expoConfig` contents before hashing. Android is unaffected because its
 runtimeVersion is a literal string. To verify: the local iOS fingerprint must stay
 `3ea5e99fc169b458f4c70559607b1adb06b7ac0b` (the value measured on `origin/master`).
+
+**2026-11-21 06:35 · Baseline release build OOMs on this machine (pre-existing).**
+`assembleRelease` on unmodified `origin/master` died in `lintVitalAnalyzeRelease`
+("JVM garbage collector is thrashing … out of JVM Metaspace"; configured 2 GiB heap /
+512 MiB metaspace). That's an environment limit, not a code issue. Workaround: pass
+`-Dorg.gradle.jvmargs="-Xmx6g -XX:MaxMetaspaceSize=1536m"` on the command line.
+`gradle.properties` was NOT changed (it's committed and EAS has its own settings).
+A hand-written `local.properties` with single backslashes also broke configuration
+("Invalid file path"). Deleted; `ANDROID_HOME` is enough.
+
+**2026-11-21 06:50 · Car code lives in `plugins/android/AndroidAuto/`, wired via sourceSets.**
+Prebuild-safe and single-copy. The config plugin appends a generated gradle block that
+adds the dir as `main.java`/`main.res`/`test.java` source sets plus the deps. The committed
+`android/app/build.gradle` got the block by running the plugin's own `applyGradleBlock`, so
+it's byte-identical. `test/withAndroidAuto.test.mjs` fails if they drift. Rejected:
+copying sources into `android/` from the plugin (two copies that can drift), and putting
+them directly in `android/app/src/main/java` (wiped by `expo prebuild --clean`).
+
+**2026-11-21 06:55 · Operator pins = extra rows, after all drones.**
+`PlaceListMapTemplate` has one marker per row, and the anchor is a single place. To show
+a distinct operator pin, operators get their own rows ("Operator · name", blue "OP"
+marker) while there's room under the row limit. Drones always take priority.
+
+**2026-11-21 07:00 · Unreliable speed/heading hidden in the car.**
+The backend nulls heading for legacy-decoded frames and keeps speed with a "†" note
+(`kinematicsDisplay.js`: legacy speed can read ~3x high). A dagger is meaningless at a
+glance and a 3x-high speed is misleading to a driver, so the car shows "—" for both unless
+the frame is spec-decoded (`kinematics_reliable` from the backend; `decoder != null` for
+local frames). Backends that predate the flag are treated as reliable.
+
+**2026-11-21 07:00 · Counted-template budget = 2 on hosts without app-driven refresh.**
+Quota is 5 per task: initial template (1) + detail push (1) + 1 spare leaves 2 for list
+additions. Spending the budget only on ADDED drones (the event that matters) keeps the
+first drone appearing automatically on old hosts. Removals never spend budget (rows show
+"Signal lost").
+
+**2026-11-21 07:00 · Rebase on `onResume`.**
+Verified in the 1.7.0 sources: `ScreenManager.pop()` calls `setUseLastTemplateId(true)` on
+the new top screen, so the host sees the back operation and content may change freely.
+On returning from background the host is re-launched from the car launcher, which also
+resets the quota.
+
+**2026-11-21 07:05 · No alerts for drones already up when the screen opens.**
+`AutoController.armAlerts()` is called after the first non-loading list. Drones from the
+initial hydrate just appear in the list without a toast burst.
+
+**2026-11-21 07:10 · Verification so far.**
+JVM unit tests: 56 new + 8 existing `OdidParserTest`, all pass. JS: 371 node tests pass
+(incl. 6 new), `tsc --noEmit` clean. iOS fingerprint is unchanged with the plugin:
+`3ea5e99f…` (with the guard disabled it becomes `61715478…`, so the guard is what keeps it
+stable). Android fingerprint is irrelevant (literal runtimeVersion).
+
+**2026-11-21 07:25 · Added Robolectric template tests (no DHU, so this is the next-best check).**
+The pure-logic tests can't catch the most likely runtime failure: the Car App Library
+throwing `IllegalArgumentException` while building a template (e.g. a non-browsable
+row without a `DistanceSpan`, >2 text lines, marker label >3 chars). `ScreenTemplatesTest`
+uses `androidx.car.app:app-testing:1.7.0` + Robolectric 4.14.1 (`@Config(sdk = [34])`;
+4.14 doesn't know SDK 36) to build the real list/detail templates. It runs with a plain
+`android.app.Application`, because the real `MainApplication` boots React Native/SoLoader
+under Robolectric. Two `internal` test seams were added to `AutoController`
+(`originOverride`, `ingestForTest`); production code never sets them. Test-only deps
+(test classpath, not in the APK).
+
+**2026-11-21 07:25 · `setTitle`/`setHeaderAction` kept despite deprecation.**
+The replacement `setHeader(Header)` is `@RequiresCarApi(7)`, and we support hosts from
+API 5. Warnings are suppressed with a comment.

@@ -63,6 +63,9 @@ class DroneDetailScreen(
         main.postDelayed(deferred, wait)
     }
 
+    // setTitle/setHeaderAction are deprecated in favour of setHeader(Header), but
+    // setHeader needs Car API 7 and we support hosts from API 5 (minCarApiLevel).
+    @Suppress("DEPRECATION")
     override fun onGetTemplate(): Template {
         val now = System.currentTimeMillis()
         val live = controller.tracker.get(uasId)

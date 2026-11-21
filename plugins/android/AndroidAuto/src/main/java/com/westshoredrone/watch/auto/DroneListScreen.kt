@@ -218,6 +218,9 @@ class DroneListScreen(
         main.post { CarToast.makeText(carContext, msg, CarToast.LENGTH_LONG).show() }
     }
 
+    // setTitle/setHeaderAction are deprecated in favour of setHeader(Header), but
+    // setHeader needs Car API 7 and we support hosts from API 5 (minCarApiLevel).
+    @Suppress("DEPRECATION")
     private fun signedOutTemplate(): Template =
         MessageTemplate.Builder(
             "Open Westshore Watch on your phone and sign in to see live drones here.",
