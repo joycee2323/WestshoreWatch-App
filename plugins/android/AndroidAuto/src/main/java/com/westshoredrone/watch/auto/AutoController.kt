@@ -13,6 +13,7 @@ import androidx.lifecycle.LifecycleOwner
  * STARTED (car screen visible), so nothing runs when the car isn't connected.
  */
 class AutoController(context: Context) : DefaultLifecycleObserver {
+    private val appContext = context.applicationContext
     private val main = Handler(Looper.getMainLooper())
     val tracker = DroneTracker()
     val alerter = NewDroneAlerter()
@@ -74,11 +75,14 @@ class AutoController(context: Context) : DefaultLifecycleObserver {
         location.start()
         main.postDelayed(ticker, TICK_MS)
         main.postDelayed(initialGrace, INITIAL_GRACE_MS)
+        // Debug builds: fake-drone simulator (src/debug). Release: no-op (src/release).
+        AutoDebugHooks.onSessionStarted(appContext, this)
     }
 
     override fun onStop(owner: LifecycleOwner) {
         if (!started) return
         started = false
+        AutoDebugHooks.onSessionStopped(this)
         LocalDetectionTap.sink = null
         feed.stop()
         location.stop()

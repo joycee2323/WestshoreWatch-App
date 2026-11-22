@@ -198,3 +198,31 @@ Environment notes: this shell had no `JAVA_HOME`. Used Android Studio's JBR
 measured with the CLI, `npx fingerprint fingerprint:generate --platform ios` (it applies
 `fingerprint.config.js`). A raw `createFingerprintAsync('.', {platforms:['ios']})` call gives a
 different hash (`3bd6ce6d…`) and is NOT the check.
+
+**2026-11-22 01:45 · Task 2: debug-only fake drone feed.**
+* **Injection point: `LocalDetectionTap.onLocalDetection`**, the exact call `BLEScannerService`
+  makes for real node-relayed frames. Everything downstream is the production path
+  (`AutoController.ingest` → `DroneTracker`, the on-ground rule, `NewDroneAlerter`, list
+  planning and quota). Rejected: calling `AutoController.ingestForTest` (skips the tap's
+  on-ground conversion) or a parallel UI.
+* **Release exclusion via variant source sets, not `BuildConfig.DEBUG` checks.** `src/debug`
+  has `AutoDebugHooks` → `FakeDroneFeed`; `src/release` has an `AutoDebugHooks` with the same
+  signature that does nothing. Release never compiles a simulator class, so there's nothing
+  for R8 to keep by mistake. The gradle block (plugin + committed copy, parity-tested) adds
+  `debug`, `release` and `testDebug` source dirs. The app has only those two build types.
+* **Receiver registered at runtime, not in a manifest.** `FakeDroneFeed` registers it
+  (`ContextCompat.registerReceiver`, `RECEIVER_EXPORTED` so `adb shell` can reach it) when the
+  first car session starts. A debug-manifest receiver would have meant editing the committed
+  `android/app/src/debug/AndroidManifest.xml` and a second (dangerous-mod) plugin step to keep
+  prebuild-safe; the runtime receiver needs no manifest at all, so the release merged manifest
+  can't contain it. Cost: broadcasts only work after the car app has been opened once in the
+  process (documented).
+* **Scenario timing:** frames at 1 Hz (typical Remote ID rate). `landing` touches down at 40 s
+  and keeps sending on-ground frames until 90 s, to prove the drone stays suppressed rather
+  than flickering back. `silent` stops at 30 s. `churn` uses 3 slots, lives and gaps 20–40 s,
+  15 min total (≥ 40 membership changes, tested).
+* **Origin:** the controller's phone fix at scenario start, else Brook Park, OH
+  (41.3984, -81.8046, approx. city center).
+* **Generators are pure and seeded** (`kotlin.random.Random(seed)`, default 42), with tests in
+  `src/testDebug` (8 tests; they run in `testDebugUnitTest`). They can't live in `src/test`
+  because that's also compiled for `testReleaseUnitTest`, where the simulator doesn't exist.

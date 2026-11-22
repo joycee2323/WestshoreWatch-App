@@ -149,19 +149,73 @@ npx tsc --noEmit
 8. Useful logcat tags: `WswAutoFeed`, `WswAutoAuth`, `WswAutoLocation`, `WswAutoDetail`,
    `CarApp.H`/`CarApp` (library + host).
 
-To test with no real drones, the existing tools in this workspace (`wsw-skydio-sim-tx`,
-`wsw-frozen-sim-tx`) generate Remote ID broadcasts a node will relay. They exercise the
-whole BLE → backend → WS path.
+To test with no real drones, use the debug-build simulator (next section). The
+over-the-air tools in this workspace (`wsw-skydio-sim-tx`, `wsw-frozen-sim-tx`) still exist
+for an end-to-end BLE → node → backend → WS test, but they need node hardware.
 
 Screenshots for review/store: the DHU has a screenshot command in its console (`screenshot
 <file.png>`).
 
 ---
 
+## Testing without real drones (debug builds only)
+
+Debug builds contain a fake-drone simulator (`plugins/android/AndroidAuto/src/debug/…/debugsim/`).
+It feeds frames into `LocalDetectionTap`, the same entry point as real node-relayed BLE frames,
+so they go through the real `AutoController` → `DroneTracker` (eviction, on-ground rule,
+new-drone toasts, quota policy). There is no separate UI.
+
+**Release builds contain none of it.** The release source set has an empty `AutoDebugHooks`
+with the same signature. No receiver is declared in any manifest; the debug code registers
+it at runtime.
+
+**How to drive it.** Open Westshore Watch on the DHU first. The receiver is registered when
+the first car session starts. A broadcast sent earlier is simply not received; open the car
+app and send it again. Then, from a terminal on the PC:
+
+```
+adb shell am broadcast -a com.westshoredrone.watch.auto.DEBUG_SIM --es scenario one     -p com.westshoredrone.watch
+adb shell am broadcast -a com.westshoredrone.watch.auto.DEBUG_SIM --es scenario many    -p com.westshoredrone.watch
+adb shell am broadcast -a com.westshoredrone.watch.auto.DEBUG_SIM --es scenario churn   -p com.westshoredrone.watch
+adb shell am broadcast -a com.westshoredrone.watch.auto.DEBUG_SIM --es scenario landing -p com.westshoredrone.watch
+adb shell am broadcast -a com.westshoredrone.watch.auto.DEBUG_SIM --es scenario silent  -p com.westshoredrone.watch
+adb shell am broadcast -a com.westshoredrone.watch.auto.DEBUG_SIM --es scenario stop    -p com.westshoredrone.watch
+```
+
+Optional: `--el seed 7` changes the random layout of `many`/`churn` (default seed 42, so the
+same command always gives the same drones). Watch `adb logcat -s WswAutoSim` for what it's doing.
+
+| Scenario | What happens | What to check |
+|---|---|---|
+| `one` | `SIM-ONE-1` circles the phone at 300 m (60 m high, ~12.6 m/s = 28 mph), operator 140 m SW. Runs until `stop`. | Row shows ~300 m (~0.19 mi), direction changes, 197 ft "high", 28.1 mph; OP row/pin; detail + Navigate. |
+| `many` | 8 drones (`SIM-MANY-1..8`) on orbits 200 m – 1.6 km away, each operator at its orbit center. Runs until `stop`. | List caps at the host limit (usually 6), nearest first, operators dropped first. |
+| `churn` | 3 slots; each runs a drone for 20–40 s (new UAS ID each time), then a 20–40 s gap. 15 minutes, then stops by itself. | **Quota soak**: no "app ran into an error" for the full 15 min; toasts are batched; on older hosts rows freeze and refresh applies them. |
+| `landing` | `SIM-LAND-1` 400 m east: level at 60 m for 10 s, descends 2 m/s, touches down at 40 s, keeps transmitting on the ground until 90 s. | Row disappears ~5 s after touchdown (t ≈ 45 s) and does **not** come back while it sits on the ground. |
+| `silent` | `SIM-SILENT-1` circles at 250 m for 30 s, then stops transmitting. | "Seen N s ago" grows, then the drone is dropped ~15 s after the last frame (t ≈ 45 s); on an older host the row may show "Signal lost" until refresh. |
+| `stop` | Stops sending. Drones age out by the normal 15 s rule. | |
+
+Starting a new scenario replaces the current one (its drones age out). The scenario keeps
+its clock while the car screen is hidden and resumes when it's shown. Frames are sent only
+while a car session is started.
+
+**Where it's centered:** the phone's last location fix if the car app has one, otherwise
+a fixed point in Brook Park, OH (41.3984, -81.8046). With the Brook Park fallback the
+distances are from Brook Park to wherever the map thinks you are. Grant location for
+meaningful distances.
+
+**Signed out?** The car shows "Sign in on your phone" and no list, simulator or not. Sign in first.
+
+Unit tests: `plugins/android/AndroidAuto/src/testDebug/…/SimScenariosTest.kt` (runs in
+`:app:testDebugUnitTest`) checks each generator deterministically (seeded) and drives `landing`
+and `silent` through the real `DroneTracker` to prove the 5 s / 15 s evictions.
+
+---
+
 ## Manual test checklist (DHU first, then a real car)
 
-Setup: debug build, phone signed in, location granted, a node relaying a simulated or
-real drone.
+Setup: debug build, phone signed in, location granted. Drones come from the debug
+simulator (`adb shell am broadcast … --es scenario <name>`, see "Testing without real
+drones"); the scenario to use is given in brackets.
 
 **Launch / auth**
 - [ ] App appears in the Android Auto launcher with the Westshore icon and name.
@@ -176,26 +230,28 @@ real drone.
 - [ ] No drones: "No drones detected · Live feed connected".
 - [ ] Airplane mode on the phone: the message changes to "offline, retrying". Turning
       airplane mode off reconnects.
-- [ ] A drone appears within a few seconds of the phone Live Map showing it. Toast
-      "New drone: …". The row shows "NEW" for 30 s.
-- [ ] The row shows distance, direction, AGL, mph. Values update about every 3 s and the
-      rows **don't jump** while the set is unchanged.
-- [ ] The map shows a red drone pin and, if broadcast, a blue "OP" operator row/pin.
-- [ ] The drone lands or stops: it leaves within ~15 s (backend) / 5 s grounded (local
-      relay). On an older host it may show "Signal lost" until refresh.
-- [ ] 7+ drones (simulator): the list caps at the host limit. Nearest drones are listed and
+- [ ] [`one`] The drone appears within ~3 s of the broadcast. Toast "New drone: SIM-ONE-1".
+      The row shows "NEW" for 30 s. (With a real node, also check it appears within a few
+      seconds of the phone Live Map showing it.)
+- [ ] [`one`] The row shows distance, direction, height, mph. Values update about every 3 s
+      and the rows **don't jump** while the set is unchanged.
+- [ ] [`one`] The map shows a red drone pin and a blue "OP" operator row/pin.
+- [ ] [`landing`] The drone leaves ~5 s after touchdown (t ≈ 45 s) and stays gone.
+- [ ] [`silent`] The drone leaves ~15 s after it stops (t ≈ 45 s). On an older host it may
+      show "Signal lost" until refresh.
+- [ ] [`many`] 8 drones: the list caps at the host limit. Nearest drones are listed and
       operators are dropped first.
-- [ ] Leave the screen open for 10+ minutes with drones coming and going: the app **never**
-      shows the host's "app ran into an error" / quota message. (The main risk; see Known
-      limitations.)
+- [ ] [`churn`, 15 min] Leave the screen open with drones coming and going: the app
+      **never** shows the host's "app ran into an error" / quota message. (The main risk; see
+      Known limitations.) Also open a detail screen and go back a few times during the run.
 - [ ] Header refresh button applies pending changes.
 - [ ] Revoke location permission on the phone: no distances, rows still tappable, an
       "Allow location" action is shown, and tapping it opens the phone prompt.
 
 **Detail**
 - [ ] Tap a drone: the pane shows Position, Altitude · speed · heading, Operator, Remote ID.
-- [ ] Values update live. If the drone goes silent: "Signal lost · last seen N s ago",
-      and Navigate still works.
+- [ ] Values update live. [`silent`, open the detail before t = 30 s] When it goes silent:
+      "Signal lost · last seen N s ago", and Navigate still works.
 - [ ] **Navigate to drone** opens Google Maps (or the default nav app) to the drone's position.
 - [ ] **Navigate to operator** appears only when the operator position is known, and navigates there.
 - [ ] Back returns to the list with current data (no error).

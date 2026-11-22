@@ -206,6 +206,17 @@ android {
         test {
             java.srcDirs += ["${rootDir}/../plugins/android/AndroidAuto/src/test/java"]
         }
+        // Debug-only fake-drone simulator (adb broadcast DEBUG_SIM). Release gets a
+        // no-op AutoDebugHooks with the same signature and none of the simulator.
+        debug {
+            java.srcDirs += ["${rootDir}/../plugins/android/AndroidAuto/src/debug/java"]
+        }
+        release {
+            java.srcDirs += ["${rootDir}/../plugins/android/AndroidAuto/src/release/java"]
+        }
+        testDebug {
+            java.srcDirs += ["${rootDir}/../plugins/android/AndroidAuto/src/testDebug/java"]
+        }
     }
     // Robolectric template tests (ScreenTemplatesTest) need merged resources.
     testOptions {
