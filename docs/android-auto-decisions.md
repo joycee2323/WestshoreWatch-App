@@ -226,3 +226,33 @@ different hash (`3bd6ce6d…`) and is NOT the check.
 * **Generators are pure and seeded** (`kotlin.random.Random(seed)`, default 42), with tests in
   `src/testDebug` (8 tests; they run in `testDebugUnitTest`). They can't live in `src/test`
   because that's also compiled for `testReleaseUnitTest`, where the simulator doesn't exist.
+
+**2026-11-22 02:05 · Task 3: release host validator. Keep the library's `hosts_allowlist_sample`.**
+Research:
+* Official docs (`CarAppService.createHostValidator` reference): "Refer to
+  `androidx.car.app.R.array.hosts_allowlist_sample` to obtain a list of package names and
+  signatures that should be allow-listed by default." Their code example does exactly what we
+  do: `ALLOW_ALL_HOSTS_VALIDATOR` when `FLAG_DEBUGGABLE`, otherwise
+  `HostValidator.Builder(context).addAllowedHosts(R.array.hosts_allowlist_sample)`. Google
+  publishes no separate list of Android Auto certificate digests; the sample is the only
+  documented source. The docs say nothing about the list going stale.
+* Library 1.7.0 resource (read from the AAR): 3 SHA-256 cert digests for
+  `com.google.android.projection.gearhead` (Android Auto) and 3 for
+  `com.google.android.apps.automotive.templates.host` (AAOS).
+* Library bytecode (`HostValidator`, disassembled): on API 28+ it hashes every cert in
+  `SigningInfo.getSigningCertificateHistory()`, so a key **rotation** (APK v3 lineage) still
+  matches the old digest. It also accepts any host holding `android.car.permission.TEMPLATE_RENDERER`
+  (the Builder default). A host with zero or multiple signers is rejected.
+
+Decision: the sample IS the officially documented production approach. Hand-copying the
+digests into our own resource would be worse: it would stop receiving updates from library
+upgrades and add a second list to maintain. Residual risk: Google moves Android Auto to a
+brand-new unrelated key (not a rotation); then we'd need a library upgrade. Changes:
+* Extracted `CarHostValidators.forBuild(context, debuggable)` (same behavior) so it's testable.
+* `CarHostValidatorsTest` (Robolectric, 5 tests): pins the exact 6 allowlist entries (a library
+  upgrade that changes them fails the test on purpose), checks debug = allow-all and release =
+  a real allowlist carrying every digest, and that release rejects an uninstalled host and an
+  app named `com.google.android.projection.gearhead` signed with another key.
+* Not testable here: acceptance of the REAL Android Auto (needs Google's actual certificate;
+  Robolectric 4.14 can't build a `SigningInfo`). Recorded as an open item in STATUS. It's
+  checked by the release build from Play internal testing (step in STATUS).

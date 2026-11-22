@@ -1,5 +1,6 @@
 package com.westshoredrone.watch.auto
 
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import androidx.car.app.CarAppService
@@ -16,19 +17,38 @@ import androidx.car.app.validation.HostValidator
 class WswCarAppService : CarAppService() {
 
     override fun createHostValidator(): HostValidator =
-        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-            // Debug builds: allow any host (DHU, test hosts).
+        CarHostValidators.forBuild(
+            applicationContext,
+            debuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0,
+        )
+
+    override fun onCreateSession(): Session = DroneSession()
+}
+
+/**
+ * Which Android Auto / AAOS hosts may bind the car service.
+ *
+ * Release: exactly what Google documents for production (CarAppService.createHostValidator
+ * reference doc): hosts holding the TEMPLATE_RENDERER system permission (the default of
+ * HostValidator.Builder) plus the library's `hosts_allowlist_sample`, which lists the
+ * signing-certificate SHA-256 digests of Android Auto (com.google.android.projection.gearhead)
+ * and the AAOS templates host. The validator matches against the host's whole signing
+ * certificate history (SigningInfo.getSigningCertificateHistory), so a Google key ROTATION
+ * keeps matching. The list ships with the library, so library upgrades carry any new
+ * entries; CarHostValidatorsTest pins its current contents so a change is noticed.
+ * See docs/android-auto-decisions.md (2026-11-22, task 3).
+ *
+ * Debug: any host (the DHU and test hosts), as the same doc advises.
+ */
+object CarHostValidators {
+    fun forBuild(context: Context, debuggable: Boolean): HostValidator =
+        if (debuggable) {
             HostValidator.ALLOW_ALL_HOSTS_VALIDATOR
         } else {
-            // Release: only the Google-signed hosts the library ships (Android Auto,
-            // Android Automotive templates host), plus any host holding the
-            // TEMPLATE_RENDERER system permission.
-            HostValidator.Builder(applicationContext)
+            HostValidator.Builder(context)
                 .addAllowedHosts(androidx.car.app.R.array.hosts_allowlist_sample)
                 .build()
         }
-
-    override fun onCreateSession(): Session = DroneSession()
 }
 
 class DroneSession : Session() {
