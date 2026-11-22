@@ -282,3 +282,29 @@ the core POI function. Data safety conclusion: no new data types. The car code's
 are read-only (`GET /api/detections/recent`, WS `SUBSCRIBE_ORG`/`PING`), and phone location is
 used on the device only. The PR text has `[N]` placeholders filled in after the final
 verification (task 7).
+
+**2026-11-22 02:50 · Task 6: location while only the car screen shows.**
+Findings:
+* Official docs (location permissions page): foreground ("while in use") location applies when
+  "an activity that belongs to your app is visible" or "your app is running a foreground
+  service" (type `location`). No page mentions car-app sessions or bound services.
+* Starting a `location` foreground service from the background needs `ACCESS_BACKGROUND_LOCATION`
+  ("you cannot create a location foreground service while your app is in the background, unless
+  you've been granted the ACCESS_BACKGROUND_LOCATION runtime permission"). Car apps are not in
+  any exemption list, and Android 14+ throws. So the car session must NOT try to start one.
+* `BLEScannerService` already runs as `connectedDevice|location` FGS when started from the
+  phone UI. While-in-use access is per app (UID), so while it runs, the car's `PhoneLocation`
+  gets fixes with no code change. "Reusing" it needs nothing.
+* Car App Library 1.7.0 bytecode: `AppManager.startLocationUpdates()` (host-requested for the
+  current-location dot) calls `LocationManager.requestLocationUpdates("fused", 1000 ms, …)` in
+  our process after checking only ACCESS_FINE/COARSE. That's Google designing for location
+  in a car session with foreground permission only. It's evidence, not proof, of how the
+  platform treats the host-bound process.
+Change (smallest safe one, no new permissions): `PhoneLocation` now (1) ignores last-known fixes
+older than 5 min at start (an hours-old fix from another town gave confidently wrong distances);
+(2) requests one fresh `getCurrentLocation` fix at start; (3) keeps the newest fix regardless of
+arrival order; (4) logs a warning if there's no fix 15 s after start (diagnostic for the DHU).
+The ongoing origin is NOT age-limited, because updates use a 5 m minimum distance, so a parked
+phone legitimately stops receiving updates. `LocationFreshness` has 4 unit tests.
+Remaining limitation: with the phone app closed and not scanning, location in the car session
+is unverified. Morning check in STATUS.

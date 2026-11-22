@@ -305,9 +305,22 @@ drones"); the scenario to use is given in brackets.
 * **Local BLE tap only while scanning.** It feeds the car only while the phone app's BLE
   foreground service is running (started from the phone's Live Map). Without it, the car
   relies on the backend feed, which needs cellular data.
-* **Location while backgrounded.** Uses foreground location permission. Whether Android
-  grants it while only the car screen is visible (phone app UI closed) hasn't been verified
-  on a device. If not, distances fall back to the last known fix or are hidden.
+* **Location while backgrounded.** The app has only foreground ("while in use") location
+  permission, by design (no `ACCESS_BACKGROUND_LOCATION`). Android grants it while (1) a phone
+  activity is visible, or (2) a location-type foreground service runs. Our `BLEScannerService`
+  is one (`connectedDevice|location`, started from the phone UI), so **while the phone is
+  scanning, the car always has location**, with nothing extra needed (permission is per app,
+  not per component). With the phone app fully closed and not scanning, it depends on whether
+  the platform treats the Android Auto-bound car session as foreground. The docs don't say.
+  The Car App Library itself requests fused updates from our process for the map's location dot,
+  checking only the foreground permissions, which suggests Google expects it to work, but it's
+  **unverified on a device**. If it's withheld, distances are hidden (no crash), and logcat
+  `WswAutoLocation` says "no location fix 15 s after start". A location foreground service
+  can't be started from the car session instead: from the background that requires
+  `ACCESS_BACKGROUND_LOCATION` (Android 12+ start restrictions; Android 14+ throws).
+  Since 2026-11-22 a last-known fix older than 5 minutes is ignored at start, and one fresh
+  `getCurrentLocation` fix is requested, so a stale fix from elsewhere can't produce wrong
+  distances.
 * **Token format coupling.** The native JWT read mirrors expo-secure-store 15.0.8's private
   storage format. An expo-secure-store upgrade that changes it degrades to the in-memory
   `UploadConfig` token (needs the phone app opened once per process). Re-run the
