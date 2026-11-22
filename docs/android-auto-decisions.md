@@ -272,3 +272,13 @@ brand-new unrelated key (not a rotation); then we'd need a library upgrade. Chan
   DHU still needs a physical phone running Android Auto's head unit server. `desktop-head-unit.exe`
   was not launched (it would just wait for a phone).
 * Docs: the DHU section of `android-auto.md` now has the exact install/run commands.
+
+**2026-11-22 02:30 · Task 5: Play review kit and PR text written, PR not opened.**
+`docs/play-review-notes.md` (review notes long and short, App access addition, a timed DHU
+recording script using `many` → detail → navigate → `landing` → `one`, Data safety re-check)
+and `docs/android-auto-PR-description.md`. Framing chosen for PC-1: drone and operator
+positions as **safety-relevant locations a driver navigates to**, with navigation handoff as
+the core POI function. Data safety conclusion: no new data types. The car code's network calls
+are read-only (`GET /api/detections/recent`, WS `SUBSCRIBE_ORG`/`PING`), and phone location is
+used on the device only. The PR text has `[N]` placeholders filled in after the final
+verification (task 7).
