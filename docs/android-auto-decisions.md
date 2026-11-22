@@ -308,3 +308,15 @@ The ongoing origin is NOT age-limited, because updates use a 5 m minimum distanc
 phone legitimately stops receiving updates. `LocationFreshness` has 4 unit tests.
 Remaining limitation: with the phone app closed and not scanning, location in the car session
 is unverified. Morning check in STATUS.
+
+**2026-11-22 03:15 · Task 7: final verification; stopping.**
+From a clean Gradle build of the branch head: BUILD SUCCESSFUL (9m11s), JVM 89/89, no warnings
+from the car code; `node --test` 387/387; `tsc` clean; iOS fingerprint `3ea5e99f…` unchanged.
+Release proof for the debug-only simulator: the merged release manifest was diffed against one
+generated from `origin/master` in a throwaway worktree (since removed). The only additions are
+the car service, `MAP_TEMPLATES`, the two meta-data entries and the library's non-exported or
+disabled components plus its `<queries>` provider; no receiver. The simulator is absent from the
+pre-R8 release classes, the R8 mapping and the release dex strings, while the same string
+search finds it in the debug dex. All task results are in STATUS, with the open host-allowlist
+question at the top. Not done on purpose: push, PR, merge, EAS, version bump, any production
+call. No extra features started.

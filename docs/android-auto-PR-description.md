@@ -1,7 +1,8 @@
 # PR text for `feature/android-auto`
 
 Paste when you open the PR (base `master`). Not opened by me. The test-evidence numbers are
-from the final clean verification on 2026-11-22; re-run them if you change anything.
+from the final clean verification on 2026-11-22 (branch head before this doc commit);
+re-run them if you change anything.
 
 ---
 
@@ -68,9 +69,9 @@ dangerous permissions, no `ACCESS_BACKGROUND_LOCATION`, no version bump** in thi
 
 - `./gradlew clean` then `:app:testDebugUnitTest assembleDebug assembleRelease
   :app:lintVitalRelease :app:processReleaseManifest`: BUILD SUCCESSFUL.
-- JVM tests: [N]/[N] pass (pure logic, Robolectric template builds, host-validator pins,
+- JVM tests: 89/89 pass (pure logic, Robolectric template builds, host-validator pins,
   seeded simulator scenarios driven through the real tracker, existing OdidParser tests).
-- `node --test test/*.test.mjs`: [N]/[N]. `npx tsc --noEmit`: clean.
+- `node --test test/*.test.mjs`: 387/387. `npx tsc --noEmit`: clean.
 - iOS fingerprint `3ea5e99fc169b458f4c70559607b1adb06b7ac0b`, identical to master.
 - Release merged manifest: only the entries listed above; no debug receiver. Release APK
   contains no `debugsim` classes.
