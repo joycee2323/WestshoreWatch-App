@@ -327,6 +327,12 @@ export const api = {
   // Detections
   getDetections: (deploymentId: string) =>
     request('GET', `/detections/${deploymentId}`),
+  // Flight Replay: the same endpoint with the whole recorded history. Without
+  // since=all the server only returns drones seen in the last 60 s, and
+  // without include_grounded a drone that later docked (grounded state) is
+  // dropped entirely. Same query as the dashboard's History page.
+  getDetectionHistory: (deploymentId: string) =>
+    request('GET', `/detections/${encodeURIComponent(deploymentId)}?since=all&include_grounded=1`),
   // Org-wide recent detections, used by the Live Map's passive view when no
   // deployment is active. Server clamps `minutes` to [1, 60]; default 5.
   getRecentDetections: (minutes: number = 5) =>
