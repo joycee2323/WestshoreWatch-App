@@ -256,3 +256,19 @@ brand-new unrelated key (not a rotation); then we'd need a library upgrade. Chan
 * Not testable here: acceptance of the REAL Android Auto (needs Google's actual certificate;
   Robolectric 4.14 can't build a `SigningInfo`). Recorded as an open item in STATUS. It's
   checked by the release build from Play internal testing (step in STATUS).
+
+**2026-11-22 02:15 · Task 4: DHU tooling installed (supersedes the 2026-11-21 06:25 "no DHU" note).**
+* Downloaded `commandlinetools-win-16111833_latest.zip` (Command-line Tools 23.0) from
+  `dl.google.com/android/repository/` (the official SDK repository; nothing else was contacted).
+  Verified its SHA-1 (`57d04f2d…`) against Google's `repository2-3.xml` before unzipping, and
+  installed it as `Sdk\cmdline-tools\latest`. It reports "version unknown" in `sdk list`
+  because it was unzipped by hand rather than installed by the SDK manager; harmless.
+* `sdkmanager.bat "extras;google;auto"` failed ("Package extras not found…"): 23.0's sdkmanager
+  is a deprecated wrapper around the new `android` CLI, and the `.bat` splits arguments at `;`.
+  `android.exe --sdk=… sdk install extras/google/auto` worked: **DHU 2.0** (stable channel)
+  at `Sdk\extras\google\auto\desktop-head-unit.exe`. 2.1 exists only on the beta channel; I kept
+  stable.
+* Not done (by instruction): no emulator images, no attempt to emulate Android Auto itself. The
+  DHU still needs a physical phone running Android Auto's head unit server. `desktop-head-unit.exe`
+  was not launched (it would just wait for a phone).
+* Docs: the DHU section of `android-auto.md` now has the exact install/run commands.

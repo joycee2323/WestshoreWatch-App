@@ -131,30 +131,60 @@ npx tsc --noEmit
 
 ## Running on the Desktop Head Unit (DHU)
 
-1. Android Studio → SDK Manager → SDK Tools → check **Android Auto Desktop Head Unit
-   Emulator** → it installs to `%LOCALAPPDATA%\Android\Sdk\extras\google\auto\`.
-2. Phone (Android 9+) with **Android Auto** installed and updated (Play Store sign-in).
-3. Android Auto settings → About → tap **Version and permission info** 10× → developer
-   mode. Overflow menu → **Start head unit server**. Also enable
-   *Settings → Previously connected cars → Add new cars to Android Auto*.
-4. Install a **debug** build on the phone (`npx expo run:android` or
-   `adb install app-debug.apk`). Debug builds accept any host (`ALLOW_ALL_HOSTS_VALIDATOR`).
-   A release build only accepts Google's real hosts. The DHU talks to the real Android Auto
-   app, so release builds also work, but only if installed from Play (see below).
+**Already installed on this workstation (2026-11-22):** Android SDK Command-line Tools
+23.0 at `%LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest\` and the **DHU 2.0** (stable
+channel) at `%LOCALAPPDATA%\Android\Sdk\extras\googleuto\desktop-head-unit.exe`.
+To reinstall or update it (PowerShell):
+
+```powershell
+$env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'
+$sdk = "$env:LOCALAPPDATA\Android\Sdk"
+# The new `android` CLI (sdkmanager.bat now forwards to it). Package paths use "/":
+# the old "extras;google;auto" form gets split at the ";" by the .bat wrapper.
+& "$sdk\cmdline-tools\latestinndroid.exe" --sdk=$sdk sdk install extras/google/auto
+# DHU 2.1 is on the beta channel only:  ... sdk install --beta extras/google/auto
+```
+
+What you need to do yourself (a physical phone is required; the DHU is only the car's screen):
+
+1. Phone (Android 9+) with **Android Auto** installed and updated (Play Store sign-in).
+   On Android 10+ it's built in: *Settings → Connected devices → Connection preferences →
+   Android Auto*.
+2. Android Auto settings → scroll to **Version** → tap it 10× → developer mode on. Overflow
+   menu (⋮) → **Start head unit server**. Also turn on
+   *Previously connected cars → Add new cars to Android Auto* if it's off.
+3. Plug the phone in over USB (USB debugging on, the PC's key accepted).
+4. Install a **debug** build (debug builds accept any host via `ALLOW_ALL_HOSTS_VALIDATOR`;
+   a release build only binds to Google-signed hosts, and Car App Library apps ignore
+   Android Auto's "unknown sources" toggle, so test release builds via Play internal testing):
+
+   ```powershell
+   cd C:\dev\WestshoreWatch-auto
+   adb install -r androidppuild\outputspk\debugpp-debug.apk
+   # or build + install + Metro in one go:  npx expo run:android
+   ```
+
+   A debug APK needs Metro for the phone UI (`npx expo start` in the worktree, then
+   `adb reverse tcp:8081 tcp:8081`). The car screens are native and don't need Metro, but
+   signing in does.
 5. Open the phone app once and **sign in** (and grant location).
-6. `adb forward tcp:5277 tcp:5277`, then run
-   `%LOCALAPPDATA%\Android\Sdk\extras\google\auto\desktop-head-unit.exe`
-   (or `desktop-head-unit.exe --usb` after `adb kill-server`).
+6. Start the DHU:
+
+   ```powershell
+   adb forward tcp:5277 tcp:5277
+   & "$env:LOCALAPPDATA\Android\Sdk\extras\googleuto\desktop-head-unit.exe"
+   ```
+
+   (Alternative without the head unit server: `adb kill-server`, then
+   `desktop-head-unit.exe --usb` with the phone in USB accessory mode.)
 7. In the DHU launcher, open **Westshore Watch**.
-8. Useful logcat tags: `WswAutoFeed`, `WswAutoAuth`, `WswAutoLocation`, `WswAutoDetail`,
-   `CarApp.H`/`CarApp` (library + host).
+8. Useful logcat tags: `adb logcat -s WswAutoSim WswAutoFeed WswAutoAuth WswAutoLocation WswAutoDetail CarApp.H CarApp`.
+
+Screenshots for review/store: type `screenshot C:\pathile.png` in the DHU console window.
 
 To test with no real drones, use the debug-build simulator (next section). The
 over-the-air tools in this workspace (`wsw-skydio-sim-tx`, `wsw-frozen-sim-tx`) still exist
 for an end-to-end BLE → node → backend → WS test, but they need node hardware.
-
-Screenshots for review/store: the DHU has a screenshot command in its console (`screenshot
-<file.png>`).
 
 ---
 
