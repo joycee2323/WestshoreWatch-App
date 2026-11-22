@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, RefreshControl, Platform, Modal,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { api } from '../services/api';
@@ -18,6 +18,7 @@ const MAX_LEAD_MS = 30 * 24 * 60 * 60 * 1000;
 export default function DeploymentsScreen() {
   const colors = useTheme();
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation<any>();
   const user = useAuthStore(s => s.user);
   const c = caps(user);
   const [deployments, setDeployments] = useState<any[]>([]);
@@ -336,6 +337,23 @@ export default function DeploymentsScreen() {
       }
     }
   };
+
+  const openReplay = (dep: any) => {
+    navigation.navigate('FlightReplay', { deploymentId: dep.id, name: dep.name });
+  };
+
+  // Flight Replay entry: every non-scheduled card, regardless of role (it's
+  // read-only). 44pt min height so it's usable with gloves.
+  const replayButton = (dep: any) => (
+    <TouchableOpacity
+      style={[s.actionBtn, s.replayBtn]}
+      onPress={() => openReplay(dep)}
+      accessibilityRole="button"
+      accessibilityLabel={`Replay flights for ${dep.name}`}
+    >
+      <Text style={[s.actionBtnText, { color: colors.cyan }]}>▶ REPLAY</Text>
+    </TouchableOpacity>
+  );
 
   const handleDelete = async (dep: any) => {
     Alert.alert(
@@ -696,6 +714,7 @@ export default function DeploymentsScreen() {
                   <ShareLinkPanel deploymentId={dep.id} canCreate={c.canCreateDeployment} reloadKey={shareReloadKey} />
                 )}
                 <View style={s.depActions}>
+                  {replayButton(dep)}
                   {c.canPauseDeployment && isContinuous && isPaused && (
                     <TouchableOpacity style={[s.actionBtn, s.amberBtn]} onPress={() => handleResume(dep)}>
                       <Text style={s.actionBtnText}>RESUME</Text>
@@ -749,13 +768,14 @@ export default function DeploymentsScreen() {
                   </Text>
                 </View>
                 <Text style={s.depMeta}>{dateStr} · {dep.drone_count || 0} drones</Text>
-                {c.canDeleteDeployment && (
-                  <View style={s.depActions}>
+                <View style={s.depActions}>
+                  {replayButton(dep)}
+                  {c.canDeleteDeployment && (
                     <TouchableOpacity style={[s.actionBtn, s.ghostBtn]} onPress={() => handleDelete(dep)}>
                       <Text style={[s.actionBtnText, { color: colors.red }]}>DELETE</Text>
                     </TouchableOpacity>
-                  </View>
-                )}
+                  )}
+                </View>
               </View>
             );
           })}
@@ -910,12 +930,17 @@ const styles = (c: ReturnType<typeof useTheme>) => StyleSheet.create({
   },
   statusText: { fontSize: 10, letterSpacing: 1, fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace' },
   depStats: { flexDirection: 'row', gap: 24, marginBottom: 14 },
-  depActions: { flexDirection: 'row', gap: 8 },
+  depActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
   actionBtn: { borderRadius: 6, paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1 },
   amberBtn: { borderColor: c.amber, backgroundColor: 'rgba(245,158,11,0.1)' },
   amberOutlineBtn: { borderColor: c.amber, backgroundColor: 'transparent' },
   dangerBtn: { borderColor: c.red, backgroundColor: 'rgba(239,68,68,0.1)' },
   ghostBtn: { borderColor: c.border },
+  replayBtn: {
+    borderColor: c.cyan, backgroundColor: 'rgba(0,212,255,0.10)',
+    minHeight: 44, minWidth: 88, paddingHorizontal: 14,
+    alignItems: 'center', justifyContent: 'center',
+  },
   scheduledCard: { borderColor: 'rgba(245,158,11,0.3)' },
   scheduledBadge: {
     backgroundColor: 'rgba(245,158,11,0.15)', borderRadius: 10,
