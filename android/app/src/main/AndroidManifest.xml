@@ -18,7 +18,10 @@
   <uses-permission android:name="android.permission.VIBRATE"/>
   <uses-permission android:name="android.permission.WAKE_LOCK"/>
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+  <uses-permission android:name="androidx.car.app.MAP_TEMPLATES"/>
   <uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>
+  <uses-feature android:name="android.hardware.screen.portrait" android:required="false" tools:node="replace"/>
+  <uses-feature android:name="android.hardware.screen.landscape" android:required="false" tools:node="replace"/>
   <queries>
     <intent>
       <action android:name="android.intent.action.VIEW"/>
@@ -37,7 +40,15 @@
     <meta-data android:name="expo.modules.updates.EXPO_UPDATE_URL" android:value="https://u.expo.dev/f40c2ea3-94c9-4552-a71a-bedb70251ba9"/>
     <meta-data android:name="expo.modules.updates.EXPO_RUNTIME_VERSION" android:value="@string/expo_runtime_version"/>
     <meta-data android:name="expo.modules.updates.UPDATES_CONFIGURATION_REQUEST_HEADERS_KEY" android:value="{&quot;expo-channel-name&quot;:&quot;production&quot;}"/>
+    <meta-data android:name="com.google.android.gms.car.application" android:resource="@xml/automotive_app_desc"/>
+    <meta-data android:name="androidx.car.app.minCarApiLevel" android:value="5"/>
     <service android:name=".BLEScannerService" android:exported="false" android:foregroundServiceType="connectedDevice|location"/>
+    <service android:name=".auto.WswCarAppService" android:exported="true" android:label="@string/app_name" android:icon="@mipmap/ic_launcher">
+      <intent-filter>
+        <action android:name="androidx.car.app.CarAppService"/>
+        <category android:name="androidx.car.app.category.POI"/>
+      </intent-filter>
+    </service>
     <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true" android:screenOrientation="unspecified">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>

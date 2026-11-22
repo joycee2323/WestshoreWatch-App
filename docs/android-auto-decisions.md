@@ -1,0 +1,379 @@
+# Android Auto: decisions log
+
+Running log of judgment calls, blockers, and workarounds for the
+`feature/android-auto` branch. Newest entries at the bottom. Times are local (EST).
+
+---
+
+**2026-11-21 06:00 · Branch base: `origin/master`, not local `master`.**
+Local `master` was 39 commits behind `origin/master` (last fetch). Those commits
+include changes to `DetectionUploader.kt`, `BLEScannerService.kt`, `OdidParser.kt`
+and `app.config.js`, the exact files this feature touches. Branching from stale
+local master would have produced conflicts in the files I hook into, and the
+branch would have carried 39 commits that are already merged upstream.
+`origin/master` was already present as a local ref, so no network call or
+remote change was involved. Local `master` was not touched (no fast-forward).
+Effect for review: use `git log origin/master..feature/android-auto --stat`
+(or fast-forward local master first). `git log master..feature/android-auto`
+would also list the 39 upstream commits.
+
+**2026-11-21 06:00 · Separate worktree at `C:\dev\WestshoreWatch-auto`.**
+The shared checkout `C:\dev\WestshoreWatch` stays on `master`, untouched, so other
+sessions using it aren't disturbed. The branch lives in the main repo's `.git`,
+so `git log … feature/android-auto` works from either directory.
+`npm ci` ran inside the worktree only. The gitignored `google-services.json`
+was copied from the main checkout so Gradle builds. It is still gitignored and
+not committed.
+
+**2026-11-21 06:10 · Wear repo used as a read-only reference.**
+`WestshoreWatch-Wear` already has a native OkHttp WebSocket client (`WsManager`)
+and drone registry for the same backend feed. I mirrored its patterns
+(SUBSCRIBE_ORG on every open, server `last_seen` parsing, backoff) instead of
+re-deriving them. No file in that repo was modified. The backend repo was also
+read (read-only) to confirm the `DRONE_UPDATE` row shape and `/api/detections/recent`.
+
+**2026-11-21 06:15 · Eviction windows: 15 s silence, 5 s grounded.**
+These are the firmware defaults (`nvs_config.c`: `silent_timeout_s = 15`,
+`land_timeout_s = 5`). The phone app's own stores use longer windows (BLE 30 s,
+backend 60 s), which suit a map you study, not a glanceable car list. The backend
+already stops broadcasting grounded drones (`groundedState`; REST excludes them
+by default), so the 5 s grounded rule only matters for locally-relayed BLE frames.
+For those it uses the same on-ground test as `src/services/onGround.ts`
+(status 1, speed ≤ 0.5 m/s, height ≤ 3 m or unknown).
+
+**2026-11-21 06:20 · Auth token: read expo-secure-store natively, read-only.**
+The car service must work when JS has never run in this process (Android Auto can
+cold-start the `CarAppService`). `UploadConfig.authToken` is in-memory only and is
+populated by JS. So the car code reads the JWT the same way expo-secure-store 15.0.8
+does: SharedPreferences `SecureStore`, key `key_v1-auth_token`, AES-GCM key from
+AndroidKeyStore alias `AES/GCM/NoPadding:key_v1[:keystoreUnauthenticated]`. It never
+writes. `UploadConfig.authToken` is the fallback. Rejected alternative: persisting
+a second copy of the token from `BLEScannerModule.configure`. That doubles where the
+secret lives and changes an existing code path.
+Risk: this is coupled to expo-secure-store's private storage format. It's guarded
+(any failure → fallback → "sign in on phone" screen) and documented in STATUS.
+
+**2026-11-21 06:25 · No DHU / emulator available.**
+The SDK has no `extras/google/auto` (DHU), no `cmdline-tools` (no `sdkmanager`), no
+`system-images`, no AVDs, and `adb devices` is empty. The DHU also needs a phone
+running Android Auto in developer mode ("Start head unit server"). Installing the SDK
+tooling needs Android Studio's SDK Manager or a manual cmdline-tools download, and
+even then a phone is still required. Decision: skip, and rely on JVM unit tests plus
+a manual DHU/in-car checklist in `docs/android-auto.md`. No screenshots could be produced.
+
+**2026-11-21 06:30 · Library version `androidx.car.app:app:1.7.0` (+ `app-projected`).**
+1.7.0 is the latest stable (2025-07-16, includes the CVE-2024-10382 fix). 1.8.0 is
+only at rc01. The library does not auto-merge the
+`com.google.android.gms.car.application` meta-data (verified in the AARs), so we
+declare it.
+
+**2026-11-21 06:30 · Template: `PlaceListMapTemplate`, not `MapWithContentTemplate`.**
+With `PlaceListMapTemplate` the host draws the map. `MapWithContentTemplate` requires
+the app to render its own map onto a car Surface (Mapbox Android Auto extension or
+custom rendering), which is a big, untestable-tonight dependency. `PlaceListMapTemplate`
+is not deprecated in 1.7.0 and is the template Google designs for POI lists.
+
+**2026-11-21 06:30 · Template quota strategy (the main design risk).**
+The host allows 5 templates per task. `PlaceListMapTemplate` updates are free only when
+the title, row count, and row titles are unchanged (or the previous template was loading,
+or the update answers a user refresh). A live drone list changes membership, which
+would burn quota, and the 6th counted template kills the app. Strategy:
+1. Row titles are only names. Distances, ages, altitudes and speeds live in the text
+   lines, which the refresh check ignores.
+2. Sticky order: rows don't reorder while the set of drones is unchanged (also less
+   distracting for a driver).
+3. If the host reports `ConstraintManager.isAppDrivenRefreshEnabled()` (Car API 6+),
+   membership changes are pushed directly. Per the API doc that does not count.
+4. Otherwise membership changes are held. Existing rows keep updating (a vanished drone
+   reads "signal lost"), a CarToast announces new drones, and the header refresh button
+   (user-initiated refresh = free) applies them. Returning from the detail screen
+   (a back operation = free) also applies them.
+5. `minCarApiLevel = 5` so the refresh listener (API 5) is always available.
+
+**2026-11-21 06:30 · Update throttle: 3 s minimum between data-driven invalidates.**
+No numeric rate limit is published (checked the PlaceListMapTemplate, Screen, and
+ConstraintManager sources and the quality guidelines). The brief asked for ~2–3 s,
+so I used the safer end. Initial content, user refresh, and back navigation are not throttled.
+
+**2026-11-21 06:32 · iOS fingerprint must not change.**
+iOS `runtimeVersion` is `fingerprint`, which hashes the expo config (incl. the plugins
+array) and every local config-plugin module. Adding `./plugins/withAndroidAuto` would
+change the iOS fingerprint and stop OTA updates reaching shipped iOS builds, even
+though iOS gains nothing. Fix: `fingerprint.config.js` gets `ignorePaths` for the
+plugin module plus a `fileHookTransform` that removes the plugin's entry from the
+`expoConfig` contents before hashing. Android is unaffected because its
+runtimeVersion is a literal string. To verify: the local iOS fingerprint must stay
+`3ea5e99fc169b458f4c70559607b1adb06b7ac0b` (the value measured on `origin/master`).
+
+**2026-11-21 06:35 · Baseline release build OOMs on this machine (pre-existing).**
+`assembleRelease` on unmodified `origin/master` died in `lintVitalAnalyzeRelease`
+("JVM garbage collector is thrashing … out of JVM Metaspace"; configured 2 GiB heap /
+512 MiB metaspace). That's an environment limit, not a code issue. Workaround: pass
+`-Dorg.gradle.jvmargs="-Xmx6g -XX:MaxMetaspaceSize=1536m"` on the command line.
+`gradle.properties` was NOT changed (it's committed and EAS has its own settings).
+A hand-written `local.properties` with single backslashes also broke configuration
+("Invalid file path"). Deleted; `ANDROID_HOME` is enough.
+
+**2026-11-21 06:50 · Car code lives in `plugins/android/AndroidAuto/`, wired via sourceSets.**
+Prebuild-safe and single-copy. The config plugin appends a generated gradle block that
+adds the dir as `main.java`/`main.res`/`test.java` source sets plus the deps. The committed
+`android/app/build.gradle` got the block by running the plugin's own `applyGradleBlock`, so
+it's byte-identical. `test/withAndroidAuto.test.mjs` fails if they drift. Rejected:
+copying sources into `android/` from the plugin (two copies that can drift), and putting
+them directly in `android/app/src/main/java` (wiped by `expo prebuild --clean`).
+
+**2026-11-21 06:55 · Operator pins = extra rows, after all drones.**
+`PlaceListMapTemplate` has one marker per row, and the anchor is a single place. To show
+a distinct operator pin, operators get their own rows ("Operator · name", blue "OP"
+marker) while there's room under the row limit. Drones always take priority.
+
+**2026-11-21 07:00 · Unreliable speed/heading hidden in the car.**
+The backend nulls heading for legacy-decoded frames and keeps speed with a "†" note
+(`kinematicsDisplay.js`: legacy speed can read ~3x high). A dagger is meaningless at a
+glance and a 3x-high speed is misleading to a driver, so the car shows "—" for both unless
+the frame is spec-decoded (`kinematics_reliable` from the backend; `decoder != null` for
+local frames). Backends that predate the flag are treated as reliable.
+
+**2026-11-21 07:00 · Counted-template budget = 2 on hosts without app-driven refresh.**
+Quota is 5 per task: initial template (1) + detail push (1) + 1 spare leaves 2 for list
+additions. Spending the budget only on ADDED drones (the event that matters) keeps the
+first drone appearing automatically on old hosts. Removals never spend budget (rows show
+"Signal lost").
+
+**2026-11-21 07:00 · Rebase on `onResume`.**
+Verified in the 1.7.0 sources: `ScreenManager.pop()` calls `setUseLastTemplateId(true)` on
+the new top screen, so the host sees the back operation and content may change freely.
+On returning from background the host is re-launched from the car launcher, which also
+resets the quota.
+
+**2026-11-21 07:05 · No alerts for drones already up when the screen opens.**
+`AutoController.armAlerts()` is called after the first non-loading list. Drones from the
+initial hydrate just appear in the list without a toast burst.
+
+**2026-11-21 07:10 · Verification so far.**
+JVM unit tests: 56 new + 8 existing `OdidParserTest`, all pass. JS: 371 node tests pass
+(incl. 6 new), `tsc --noEmit` clean. iOS fingerprint is unchanged with the plugin:
+`3ea5e99f…` (with the guard disabled it becomes `61715478…`, so the guard is what keeps it
+stable). Android fingerprint is irrelevant (literal runtimeVersion).
+
+**2026-11-21 07:25 · Added Robolectric template tests (no DHU, so this is the next-best check).**
+The pure-logic tests can't catch the most likely runtime failure: the Car App Library
+throwing `IllegalArgumentException` while building a template (e.g. a non-browsable
+row without a `DistanceSpan`, >2 text lines, marker label >3 chars). `ScreenTemplatesTest`
+uses `androidx.car.app:app-testing:1.7.0` + Robolectric 4.14.1 (`@Config(sdk = [34])`;
+4.14 doesn't know SDK 36) to build the real list/detail templates. It runs with a plain
+`android.app.Application`, because the real `MainApplication` boots React Native/SoLoader
+under Robolectric. Two `internal` test seams were added to `AutoController`
+(`originOverride`, `ingestForTest`); production code never sets them. Test-only deps
+(test classpath, not in the APK).
+
+**2026-11-21 07:25 · `setTitle`/`setHeaderAction` kept despite deprecation.**
+The replacement `setHeader(Header)` is `@RequiresCarApi(7)`, and we support hosts from
+API 5. Warnings are suppressed with a comment.
+
+**2026-11-21 07:45 · Done; stopping.**
+All deliverables written and committed. Final verification from a clean Gradle build is
+recorded in `android-auto-STATUS.md`. No extra features started. Not done on purpose:
+versionCode bump, PR, push, EAS build.
+
+---
+
+## Session 2 (2026-11-22, overnight)
+
+**2026-11-22 01:00 · Task 1: rebased onto `origin/master` be505b82.**
+`git fetch` showed origin/master had moved by one merge (App #36 Flight Replay:
+`AppNavigator.tsx`, `DeploymentsScreen.tsx`, `FlightReplayScreen.tsx`, `api.ts`,
+`flightReplay.ts`, `test/flightReplay.test.mjs`). No overlap with any file this branch
+touches, so the rebase of the 3 commits was clean (no conflicts, nothing forced).
+Re-verified after the rebase:
+* Clean Gradle (`clean`, then `:app:testDebugUnitTest assembleDebug assembleRelease
+  :app:lintVitalRelease :app:processReleaseManifest` with `-Xmx6g -XX:MaxMetaspaceSize=1536m`):
+  **BUILD SUCCESSFUL** (9m27s). JVM tests 72/72.
+* `node --test test/*.test.mjs`: 387/387 (371 before + Flight Replay's 16).
+* `npx tsc --noEmit`: clean.
+* iOS fingerprint `3ea5e99fc169b458f4c70559607b1adb06b7ac0b` (unchanged).
+
+Environment notes: this shell had no `JAVA_HOME`. Used Android Studio's JBR
+(`C:\Program Files\Android\Android Studio\jbr`, OpenJDK 21). The fingerprint must be
+measured with the CLI, `npx fingerprint fingerprint:generate --platform ios` (it applies
+`fingerprint.config.js`). A raw `createFingerprintAsync('.', {platforms:['ios']})` call gives a
+different hash (`3bd6ce6d…`) and is NOT the check.
+
+**2026-11-22 01:45 · Task 2: debug-only fake drone feed.**
+* **Injection point: `LocalDetectionTap.onLocalDetection`**, the exact call `BLEScannerService`
+  makes for real node-relayed frames. Everything downstream is the production path
+  (`AutoController.ingest` → `DroneTracker`, the on-ground rule, `NewDroneAlerter`, list
+  planning and quota). Rejected: calling `AutoController.ingestForTest` (skips the tap's
+  on-ground conversion) or a parallel UI.
+* **Release exclusion via variant source sets, not `BuildConfig.DEBUG` checks.** `src/debug`
+  has `AutoDebugHooks` → `FakeDroneFeed`; `src/release` has an `AutoDebugHooks` with the same
+  signature that does nothing. Release never compiles a simulator class, so there's nothing
+  for R8 to keep by mistake. The gradle block (plugin + committed copy, parity-tested) adds
+  `debug`, `release` and `testDebug` source dirs. The app has only those two build types.
+* **Receiver registered at runtime, not in a manifest.** `FakeDroneFeed` registers it
+  (`ContextCompat.registerReceiver`, `RECEIVER_EXPORTED` so `adb shell` can reach it) when the
+  first car session starts. A debug-manifest receiver would have meant editing the committed
+  `android/app/src/debug/AndroidManifest.xml` and a second (dangerous-mod) plugin step to keep
+  prebuild-safe; the runtime receiver needs no manifest at all, so the release merged manifest
+  can't contain it. Cost: broadcasts only work after the car app has been opened once in the
+  process (documented).
+* **Scenario timing:** frames at 1 Hz (typical Remote ID rate). `landing` touches down at 40 s
+  and keeps sending on-ground frames until 90 s, to prove the drone stays suppressed rather
+  than flickering back. `silent` stops at 30 s. `churn` uses 3 slots, lives and gaps 20–40 s,
+  15 min total (≥ 40 membership changes, tested).
+* **Origin:** the controller's phone fix at scenario start, else Brook Park, OH
+  (41.3984, -81.8046, approx. city center).
+* **Generators are pure and seeded** (`kotlin.random.Random(seed)`, default 42), with tests in
+  `src/testDebug` (8 tests; they run in `testDebugUnitTest`). They can't live in `src/test`
+  because that's also compiled for `testReleaseUnitTest`, where the simulator doesn't exist.
+
+**2026-11-22 02:05 · Task 3: release host validator. Keep the library's `hosts_allowlist_sample`.**
+Research:
+* Official docs (`CarAppService.createHostValidator` reference): "Refer to
+  `androidx.car.app.R.array.hosts_allowlist_sample` to obtain a list of package names and
+  signatures that should be allow-listed by default." Their code example does exactly what we
+  do: `ALLOW_ALL_HOSTS_VALIDATOR` when `FLAG_DEBUGGABLE`, otherwise
+  `HostValidator.Builder(context).addAllowedHosts(R.array.hosts_allowlist_sample)`. Google
+  publishes no separate list of Android Auto certificate digests; the sample is the only
+  documented source. The docs say nothing about the list going stale.
+* Library 1.7.0 resource (read from the AAR): 3 SHA-256 cert digests for
+  `com.google.android.projection.gearhead` (Android Auto) and 3 for
+  `com.google.android.apps.automotive.templates.host` (AAOS).
+* Library bytecode (`HostValidator`, disassembled): on API 28+ it hashes every cert in
+  `SigningInfo.getSigningCertificateHistory()`, so a key **rotation** (APK v3 lineage) still
+  matches the old digest. It also accepts any host holding `android.car.permission.TEMPLATE_RENDERER`
+  (the Builder default). A host with zero or multiple signers is rejected.
+
+Decision: the sample IS the officially documented production approach. Hand-copying the
+digests into our own resource would be worse: it would stop receiving updates from library
+upgrades and add a second list to maintain. Residual risk: Google moves Android Auto to a
+brand-new unrelated key (not a rotation); then we'd need a library upgrade. Changes:
+* Extracted `CarHostValidators.forBuild(context, debuggable)` (same behavior) so it's testable.
+* `CarHostValidatorsTest` (Robolectric, 5 tests): pins the exact 6 allowlist entries (a library
+  upgrade that changes them fails the test on purpose), checks debug = allow-all and release =
+  a real allowlist carrying every digest, and that release rejects an uninstalled host and an
+  app named `com.google.android.projection.gearhead` signed with another key.
+* Not testable here: acceptance of the REAL Android Auto (needs Google's actual certificate;
+  Robolectric 4.14 can't build a `SigningInfo`). Recorded as an open item in STATUS. It's
+  checked by the release build from Play internal testing (step in STATUS).
+
+**2026-11-22 02:15 · Task 4: DHU tooling installed (supersedes the 2026-11-21 06:25 "no DHU" note).**
+* Downloaded `commandlinetools-win-16111833_latest.zip` (Command-line Tools 23.0) from
+  `dl.google.com/android/repository/` (the official SDK repository; nothing else was contacted).
+  Verified its SHA-1 (`57d04f2d…`) against Google's `repository2-3.xml` before unzipping, and
+  installed it as `Sdk\cmdline-tools\latest`. It reports "version unknown" in `sdk list`
+  because it was unzipped by hand rather than installed by the SDK manager; harmless.
+* `sdkmanager.bat "extras;google;auto"` failed ("Package extras not found…"): 23.0's sdkmanager
+  is a deprecated wrapper around the new `android` CLI, and the `.bat` splits arguments at `;`.
+  `android.exe --sdk=… sdk install extras/google/auto` worked: **DHU 2.0** (stable channel)
+  at `Sdk\extras\google\auto\desktop-head-unit.exe`. 2.1 exists only on the beta channel; I kept
+  stable.
+* Not done (by instruction): no emulator images, no attempt to emulate Android Auto itself. The
+  DHU still needs a physical phone running Android Auto's head unit server. `desktop-head-unit.exe`
+  was not launched (it would just wait for a phone).
+* Docs: the DHU section of `android-auto.md` now has the exact install/run commands.
+
+**2026-11-22 02:30 · Task 5: Play review kit and PR text written, PR not opened.**
+`docs/play-review-notes.md` (review notes long and short, App access addition, a timed DHU
+recording script using `many` → detail → navigate → `landing` → `one`, Data safety re-check)
+and `docs/android-auto-PR-description.md`. Framing chosen for PC-1: drone and operator
+positions as **safety-relevant locations a driver navigates to**, with navigation handoff as
+the core POI function. Data safety conclusion: no new data types. The car code's network calls
+are read-only (`GET /api/detections/recent`, WS `SUBSCRIBE_ORG`/`PING`), and phone location is
+used on the device only. The PR text has `[N]` placeholders filled in after the final
+verification (task 7).
+
+**2026-11-22 02:50 · Task 6: location while only the car screen shows.**
+Findings:
+* Official docs (location permissions page): foreground ("while in use") location applies when
+  "an activity that belongs to your app is visible" or "your app is running a foreground
+  service" (type `location`). No page mentions car-app sessions or bound services.
+* Starting a `location` foreground service from the background needs `ACCESS_BACKGROUND_LOCATION`
+  ("you cannot create a location foreground service while your app is in the background, unless
+  you've been granted the ACCESS_BACKGROUND_LOCATION runtime permission"). Car apps are not in
+  any exemption list, and Android 14+ throws. So the car session must NOT try to start one.
+* `BLEScannerService` already runs as `connectedDevice|location` FGS when started from the
+  phone UI. While-in-use access is per app (UID), so while it runs, the car's `PhoneLocation`
+  gets fixes with no code change. "Reusing" it needs nothing.
+* Car App Library 1.7.0 bytecode: `AppManager.startLocationUpdates()` (host-requested for the
+  current-location dot) calls `LocationManager.requestLocationUpdates("fused", 1000 ms, …)` in
+  our process after checking only ACCESS_FINE/COARSE. That's Google designing for location
+  in a car session with foreground permission only. It's evidence, not proof, of how the
+  platform treats the host-bound process.
+Change (smallest safe one, no new permissions): `PhoneLocation` now (1) ignores last-known fixes
+older than 5 min at start (an hours-old fix from another town gave confidently wrong distances);
+(2) requests one fresh `getCurrentLocation` fix at start; (3) keeps the newest fix regardless of
+arrival order; (4) logs a warning if there's no fix 15 s after start (diagnostic for the DHU).
+The ongoing origin is NOT age-limited, because updates use a 5 m minimum distance, so a parked
+phone legitimately stops receiving updates. `LocationFreshness` has 4 unit tests.
+Remaining limitation: with the phone app closed and not scanning, location in the car session
+is unverified. Morning check in STATUS.
+
+**2026-11-22 03:15 · Task 7: final verification; stopping.**
+From a clean Gradle build of the branch head: BUILD SUCCESSFUL (9m11s), JVM 89/89, no warnings
+from the car code; `node --test` 387/387; `tsc` clean; iOS fingerprint `3ea5e99f…` unchanged.
+Release proof for the debug-only simulator: the merged release manifest was diffed against one
+generated from `origin/master` in a throwaway worktree (since removed). The only additions are
+the car service, `MAP_TEMPLATES`, the two meta-data entries and the library's non-exported or
+disabled components plus its `<queries>` provider; no receiver. The simulator is absent from the
+pre-R8 release classes, the R8 mapping and the release dex strings, while the same string
+search finds it in the debug dex. All task results are in STATUS, with the open host-allowlist
+question at the top. Not done on purpose: push, PR, merge, EAS, version bump, any production
+call. No extra features started.
+
+---
+
+## Session 3 (2026-11-22, same brief re-issued)
+
+**2026-11-22 · Brief repeated verbatim; all 7 tasks were already done in session 2. Did not redo them.**
+Checked instead what could have changed:
+* `git fetch`: `origin/master` is still be505b82, which the branch already contains. Task 1 needs
+  no rebase, so the verification from session 2 still applies.
+* Working tree clean. No code (`plugins/`, `android/`, `app.config.js`, `fingerprint.config.js`)
+  changed since the commit the final clean Gradle run verified (b9f9ef4b; later commits are
+  docs only). So the BUILD SUCCESSFUL / JVM 89/89 / manifest-diff / release-APK results stand.
+* iOS fingerprint re-measured: `3ea5e99fc169b458f4c70559607b1adb06b7ac0b` (unchanged).
+* The debug and release APKs from that run are still in `android/app/build/outputs/apk/`; the
+  DHU is still installed.
+Why not redo: re-implementing tasks 2–6 would only duplicate or churn tested code, and the
+brief says not to start extra features. The next step needs a phone (DHU session in STATUS
+"Morning steps"), which only you can do.
+
+---
+
+## Release build (2026-11-22, user-requested)
+
+**Version bump is native-only (`android/app/build.gradle`: versionCode 44, versionName 1.3.0).**
+The brief asked for a minor bump AND an unchanged iOS fingerprint (3ea5e99f). Measured: bumping
+the shared `version` constant to 1.3.0 in `app.config.js` (plus versionCode 44) → iOS fp
+`1d4dc9d3…`. Even `android.versionCode: 44` alone → `6ab4326f…`. @expo/fingerprint hashes the
+whole expoConfig, Android fields included. So `app.config.js` (and the runtime string in
+`strings.xml`) stay at 1.2.5/43. For this bare project EAS takes the app version from gradle
+(confirmed: build shows appVersion 1.3.0, versionCode 44). Consequence: the Android OTA runtime
+stays 1.2.5, shared with the 1.2.5 store build. That's acceptable because the Android Auto code
+exposes nothing to JS (no new native module, only one no-op-unless-car line in
+`BLEScannerService`), so any 1.2.5 JS bundle runs on 1.3.0 and vice versa. Follow-up when
+convenient: align `app.config.js` with gradle together with the next deliberate iOS native
+release (when the iOS fingerprint changes anyway).
+`android/.kotlin/` (Kotlin compiler cache from the local Gradle run) was deleted before the EAS
+upload because `.easignore` doesn't list it. `.easignore` is itself an iOS fingerprint source,
+so I left it alone. `build-output/` is ignored via `.git/info/exclude` (not hashed).
+The EAS CLI rewrote `AndroidManifest.xml`/`strings.xml` line endings locally (no content
+change; restored).
+
+**2026-11-22 · Play pre-launch: `android.hardware.screen.portrait` required → made optional (versionCode 45).**
+Cause: not in any manifest as a `<uses-feature>`. ML Kit's
+`com.google.mlkit.vision.codescanner.internal.GmsBarcodeScanningDelegateActivity` is
+`screenOrientation="portrait"`, so Play *implies* `screen.portrait` as required (`aapt dump
+badging`: "one or more activities have specified a portrait orientation"). That blocks cars,
+desktops, Android XR and landscape-only tablets. Fix: explicit `<uses-feature>` for
+`screen.portrait` and `screen.landscape` with `required="false"` and `tools:node="replace"`, in the
+committed manifest and in `plugins/withAndroidAuto.js` (prebuild-safe; that plugin file is
+excluded from the iOS fingerprint; iOS fp re-verified `3ea5e99f…`). The scanner activity itself
+still opens in portrait; only the install filter changes.
+Left REQUIRED on purpose: `bluetooth_le` (explicit `required="true"`, BLE relay is a core
+function) and the implied `bluetooth`; `location` (implied by location permissions; not flagged,
+and all the blocked device classes have it); `faketouch` (default for all apps); GL ES 3.0
+(Mapbox). Making any of these optional would widen device eligibility to devices where a core
+feature doesn't work, which is a product decision.
+Only `versionCode` 44 → 45; `versionName` stays 1.3.0.

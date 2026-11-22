@@ -186,6 +186,11 @@ module.exports = ({ config }) => ({
       // Needed now that ios/ is .easignored and regenerated on each cloud build.
       // See plugins/withFmtConstevalFix.js. No-op on Android.
       './plugins/withFmtConstevalFix',
+      // Android Auto (Car App Library, POI category): manifest entries + wiring
+      // for the Kotlin car code in plugins/android/AndroidAuto/. Android only.
+      // Excluded from the iOS fingerprint (fingerprint.config.js) so it doesn't
+      // change the iOS runtime version. See docs/android-auto.md.
+      './plugins/withAndroidAuto',
     ],
     extra: {
       eas: {

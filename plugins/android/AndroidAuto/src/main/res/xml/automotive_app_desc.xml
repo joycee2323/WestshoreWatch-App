@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Declares Android Auto (Car App Library templates) support. Referenced by the
+     com.google.android.gms.car.application meta-data in AndroidManifest.xml
+     (added by plugins/withAndroidAuto.js). -->
+<automotiveApp>
+    <uses name="template" />
+</automotiveApp>
