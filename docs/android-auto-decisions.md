@@ -338,3 +338,25 @@ Checked instead what could have changed:
 Why not redo: re-implementing tasks 2–6 would only duplicate or churn tested code, and the
 brief says not to start extra features. The next step needs a phone (DHU session in STATUS
 "Morning steps"), which only you can do.
+
+---
+
+## Release build (2026-11-22, user-requested)
+
+**Version bump is native-only (`android/app/build.gradle`: versionCode 44, versionName 1.3.0).**
+The brief asked for a minor bump AND an unchanged iOS fingerprint (3ea5e99f). Measured: bumping
+the shared `version` constant to 1.3.0 in `app.config.js` (plus versionCode 44) → iOS fp
+`1d4dc9d3…`. Even `android.versionCode: 44` alone → `6ab4326f…`. @expo/fingerprint hashes the
+whole expoConfig, Android fields included. So `app.config.js` (and the runtime string in
+`strings.xml`) stay at 1.2.5/43. For this bare project EAS takes the app version from gradle
+(confirmed: build shows appVersion 1.3.0, versionCode 44). Consequence: the Android OTA runtime
+stays 1.2.5, shared with the 1.2.5 store build. That's acceptable because the Android Auto code
+exposes nothing to JS (no new native module, only one no-op-unless-car line in
+`BLEScannerService`), so any 1.2.5 JS bundle runs on 1.3.0 and vice versa. Follow-up when
+convenient: align `app.config.js` with gradle together with the next deliberate iOS native
+release (when the iOS fingerprint changes anyway).
+`android/.kotlin/` (Kotlin compiler cache from the local Gradle run) was deleted before the EAS
+upload because `.easignore` doesn't list it. `.easignore` is itself an iOS fingerprint source,
+so I left it alone. `build-output/` is ignored via `.git/info/exclude` (not hashed).
+The EAS CLI rewrote `AndroidManifest.xml`/`strings.xml` line endings locally (no content
+change; restored).

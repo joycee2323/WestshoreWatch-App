@@ -4,6 +4,25 @@ Branch `feature/android-auto` in worktree `C:\dev\WestshoreWatch-auto`, **10 com
 `origin/master` be505b82** (rebased tonight onto the Flight Replay merge). Nothing was pushed,
 merged, deployed or built on EAS; no PR was opened. No production API was written to.
 
+## Update 2026-11-22: release build 1.3.0 (44)
+
+* **DHU testing (debug build, reported by you):** scenarios `one`, `many`, `landing`, `silent`
+  and `stop` all passed, and a **16-minute `churn` soak** passed with no errors (no quota/"app
+  ran into an error" message).
+* **Version:** Android `versionName` 1.2.5 → **1.3.0**, `versionCode` 43 → **44**, in
+  `android/app/build.gradle` only (EAS reads these for this bare project). `app.config.js`
+  (`expo.version`, `android.versionCode`, `android.runtimeVersion`) and `strings.xml` stay at
+  1.2.5/43 on purpose: any `app.config.js` edit changes the iOS fingerprint (measured), which
+  would stop OTAs reaching shipped iOS builds. The Android OTA runtime stays **1.2.5**. That's safe
+  because the car code adds no native module that JS calls. iOS fingerprint before and after:
+  `3ea5e99fc169b458f4c70559607b1adb06b7ac0b`.
+* **EAS production build** (AAB, store distribution, commit abce8b82):
+  https://expo.dev/accounts/westshoredrone/projects/westshorewatch/builds/7fee119c-640a-4834-ace8-4a0b2c94e9d2.
+  Signed with the existing remote upload keystore. The simulator is absent from its dex.
+* **Still open:** the DHU tested the **debug** build, which accepts any host. Whether the
+  **release** build appears and opens in real Android Auto (the allowlist question below) is
+  only provable by installing it from Play internal testing.
+
 > ### ⚠ Open question: release host allowlist (read this)
 > Release builds bind only to hosts that hold `TEMPLATE_RENDERER` or whose signing certificate
 > is in the Car App Library's `hosts_allowlist_sample` (3 Android Auto + 3 AAOS digests). This is
