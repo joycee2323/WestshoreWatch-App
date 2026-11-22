@@ -94,3 +94,31 @@ test('fingerprint: Android-only plugin entry is stripped from the hashed expo co
   assert.equal(fingerprintConfig.fileHookTransform({ type: 'contents', id: 'expoConfig' }, plain, true, 'utf8'), plain);
   assert.ok(fingerprintConfig.ignorePaths.includes('plugins/withAndroidAuto.js'));
 });
+
+test('manifest: screen.portrait/landscape declared NOT required (Play: cars, desktops, XR); idempotent', () => {
+  const once = plugin.applyManifest(emptyManifest());
+  const feats = once.manifest['uses-feature'].map((f) => f.$);
+  for (const name of ['android.hardware.screen.portrait', 'android.hardware.screen.landscape']) {
+    const f = feats.filter((x) => x['android:name'] === name);
+    assert.equal(f.length, 1, name);
+    assert.equal(f[0]['android:required'], 'false');
+    assert.equal(f[0]['tools:node'], 'replace');
+  }
+  assert.equal(once.manifest.$['xmlns:tools'], 'http://schemas.android.com/tools');
+  // A library-style required declaration gets overwritten, not duplicated.
+  const m = emptyManifest();
+  m.manifest['uses-feature'] = [{ $: { 'android:name': 'android.hardware.screen.portrait', 'android:required': 'true' } }];
+  const fixed = plugin.applyManifest(m).manifest['uses-feature'].filter((f) => f.$['android:name'] === 'android.hardware.screen.portrait');
+  assert.equal(fixed.length, 1);
+  assert.equal(fixed[0].$['android:required'], 'false');
+});
+
+test('committed AndroidManifest.xml carries the optional screen features', () => {
+  const xml = readFileSync(path.join(root, 'android/app/src/main/AndroidManifest.xml'), 'utf8');
+  for (const name of ['android.hardware.screen.portrait', 'android.hardware.screen.landscape']) {
+    assert.ok(
+      xml.includes(`<uses-feature android:name="${name}" android:required="false" tools:node="replace"/>`),
+      `${name} missing or required in the committed manifest`,
+    );
+  }
+});

@@ -360,3 +360,20 @@ upload because `.easignore` doesn't list it. `.easignore` is itself an iOS finge
 so I left it alone. `build-output/` is ignored via `.git/info/exclude` (not hashed).
 The EAS CLI rewrote `AndroidManifest.xml`/`strings.xml` line endings locally (no content
 change; restored).
+
+**2026-11-22 · Play pre-launch: `android.hardware.screen.portrait` required → made optional (versionCode 45).**
+Cause: not in any manifest as a `<uses-feature>`. ML Kit's
+`com.google.mlkit.vision.codescanner.internal.GmsBarcodeScanningDelegateActivity` is
+`screenOrientation="portrait"`, so Play *implies* `screen.portrait` as required (`aapt dump
+badging`: "one or more activities have specified a portrait orientation"). That blocks cars,
+desktops, Android XR and landscape-only tablets. Fix: explicit `<uses-feature>` for
+`screen.portrait` and `screen.landscape` with `required="false"` and `tools:node="replace"`, in the
+committed manifest and in `plugins/withAndroidAuto.js` (prebuild-safe; that plugin file is
+excluded from the iOS fingerprint; iOS fp re-verified `3ea5e99f…`). The scanner activity itself
+still opens in portrait; only the install filter changes.
+Left REQUIRED on purpose: `bluetooth_le` (explicit `required="true"`, BLE relay is a core
+function) and the implied `bluetooth`; `location` (implied by location permissions; not flagged,
+and all the blocked device classes have it); `faketouch` (default for all apps); GL ES 3.0
+(Mapbox). Making any of these optional would widen device eligibility to devices where a core
+feature doesn't work, which is a product decision.
+Only `versionCode` 44 → 45; `versionName` stays 1.3.0.
