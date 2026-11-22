@@ -320,3 +320,21 @@ pre-R8 release classes, the R8 mapping and the release dex strings, while the sa
 search finds it in the debug dex. All task results are in STATUS, with the open host-allowlist
 question at the top. Not done on purpose: push, PR, merge, EAS, version bump, any production
 call. No extra features started.
+
+---
+
+## Session 3 (2026-11-22, same brief re-issued)
+
+**2026-11-22 · Brief repeated verbatim; all 7 tasks were already done in session 2. Did not redo them.**
+Checked instead what could have changed:
+* `git fetch`: `origin/master` is still be505b82, which the branch already contains. Task 1 needs
+  no rebase, so the verification from session 2 still applies.
+* Working tree clean. No code (`plugins/`, `android/`, `app.config.js`, `fingerprint.config.js`)
+  changed since the commit the final clean Gradle run verified (b9f9ef4b; later commits are
+  docs only). So the BUILD SUCCESSFUL / JVM 89/89 / manifest-diff / release-APK results stand.
+* iOS fingerprint re-measured: `3ea5e99fc169b458f4c70559607b1adb06b7ac0b` (unchanged).
+* The debug and release APKs from that run are still in `android/app/build/outputs/apk/`; the
+  DHU is still installed.
+Why not redo: re-implementing tasks 2–6 would only duplicate or churn tested code, and the
+brief says not to start extra features. The next step needs a phone (DHU session in STATUS
+"Morning steps"), which only you can do.
