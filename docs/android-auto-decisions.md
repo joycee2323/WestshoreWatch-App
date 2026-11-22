@@ -175,3 +175,26 @@ API 5. Warnings are suppressed with a comment.
 All deliverables written and committed. Final verification from a clean Gradle build is
 recorded in `android-auto-STATUS.md`. No extra features started. Not done on purpose:
 versionCode bump, PR, push, EAS build.
+
+---
+
+## Session 2 (2026-11-22, overnight)
+
+**2026-11-22 01:00 · Task 1: rebased onto `origin/master` be505b82.**
+`git fetch` showed origin/master had moved by one merge (App #36 Flight Replay:
+`AppNavigator.tsx`, `DeploymentsScreen.tsx`, `FlightReplayScreen.tsx`, `api.ts`,
+`flightReplay.ts`, `test/flightReplay.test.mjs`). No overlap with any file this branch
+touches, so the rebase of the 3 commits was clean (no conflicts, nothing forced).
+Re-verified after the rebase:
+* Clean Gradle (`clean`, then `:app:testDebugUnitTest assembleDebug assembleRelease
+  :app:lintVitalRelease :app:processReleaseManifest` with `-Xmx6g -XX:MaxMetaspaceSize=1536m`):
+  **BUILD SUCCESSFUL** (9m27s). JVM tests 72/72.
+* `node --test test/*.test.mjs`: 387/387 (371 before + Flight Replay's 16).
+* `npx tsc --noEmit`: clean.
+* iOS fingerprint `3ea5e99fc169b458f4c70559607b1adb06b7ac0b` (unchanged).
+
+Environment notes: this shell had no `JAVA_HOME`. Used Android Studio's JBR
+(`C:\Program Files\Android\Android Studio\jbr`, OpenJDK 21). The fingerprint must be
+measured with the CLI, `npx fingerprint fingerprint:generate --platform ios` (it applies
+`fingerprint.config.js`). A raw `createFingerprintAsync('.', {platforms:['ios']})` call gives a
+different hash (`3bd6ce6d…`) and is NOT the check.
