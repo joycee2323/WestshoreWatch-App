@@ -1,8 +1,8 @@
-# Android Auto: status (updated 2026-11-22 ~03:15 EST, end of session 2)
+# Android Auto: status (updated 2026-11-22, release build 1.3.0 (44))
 
-Branch `feature/android-auto` in worktree `C:\dev\WestshoreWatch-auto`, **10 commits on top of
-`origin/master` be505b82** (rebased tonight onto the Flight Replay merge). Nothing was pushed,
-merged, deployed or built on EAS; no PR was opened. No production API was written to.
+Branch `feature/android-auto`, based on `origin/master` be505b82. Pushed and opened as a PR
+(unmerged) on 2026-11-22 at the user's request, together with an EAS production Android build.
+No iOS build, no OTA, no merge. No production API was written to by the car work.
 
 ## Update 2026-11-22: release build 1.3.0 (44)
 
