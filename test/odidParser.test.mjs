@@ -32,10 +32,10 @@ function location({
   dv.setUint16(21, ts, true);
   return m;
 }
-function basicId(uasId) {
+function basicId(uasId, idType = 1) {
   const m = new Uint8Array(25);
   m[0] = 0x02;
-  m[1] = 0x12;
+  m[1] = (idType << 4) | 0x02; // ID type nibble, UA type 2
   for (let i = 0; i < uasId.length; i++) m[2 + i] = uasId.charCodeAt(i);
   return m;
 }
@@ -111,4 +111,32 @@ test('Pack (BasicID + Location) carries status, height and vertical speed', () =
   assert.equal(r.status, 1);
   assert.equal(r.height, -1);
   assert.equal(r.speedVert, 0.5);
+});
+
+// ── Multiple Basic IDs (Holy Stone module: serial + FAA registration) ──
+
+test('Basic ID reports its ID type', () => {
+  assert.equal(parse(basicId('1865CBM0200001116', 1)).idType, 1);
+  assert.equal(parse(basicId('FA3CF7H9MR', 2)).idType, 2);
+});
+
+test('Pack with serial + registration keeps the serial, in either order', () => {
+  const serial = basicId('1865CBM0200001116', 1);
+  const reg = basicId('FA3CF7H9MR', 2);
+  const loc = location();
+  assert.equal(parse(pack(serial, reg, loc)).uasId, '1865CBM0200001116');
+  assert.equal(parse(pack(reg, serial, loc)).uasId, '1865CBM0200001116');
+  assert.equal(parse(pack(reg, serial, loc)).idType, 1);
+  assert.equal(parse(pack(reg, serial, loc)).hasLocation, true);
+});
+
+test('Pack with only a registration ID still identifies the drone', () => {
+  const r = parse(pack(basicId('FA3CF7H9MR', 2), location()));
+  assert.equal(r.uasId, 'FA3CF7H9MR');
+  assert.equal(r.idType, 2);
+});
+
+test('Pack with two serial-type IDs: later one still wins (unchanged)', () => {
+  const r = parse(pack(basicId('AAAA', 1), basicId('BBBB', 1), location()));
+  assert.equal(r.uasId, 'BBBB');
 });

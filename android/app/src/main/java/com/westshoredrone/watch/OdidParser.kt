@@ -34,6 +34,9 @@ object OdidParser {
         val hasLocation: Boolean = false,
         val hasSystem: Boolean = false,
         val uasId: String? = null,
+        // Basic ID byte 1 high nibble: 1 = serial number, 2 = CAA/FAA registration,
+        // 3 = UTM-assigned UUID, 4 = session ID.
+        val idType: Int? = null,
         val lat: Double? = null,
         val lon: Double? = null,
         val altGeo: Double? = null,
@@ -67,12 +70,26 @@ object OdidParser {
         val locRaw: String? = null,
         val relayFormat: Int? = null,
     ) {
-        fun merge(other: Result): Result = Result(
+        // A Pack can carry several Basic IDs (serial + registration): keep the
+        // best-ranked one, not the last. Lower rank wins; serial number first.
+        private fun mergedId(other: Result): Pair<String?, Int?> {
+            val keepThis = hasBasicId && uasId != null && other.hasBasicId &&
+                (other.uasId == null || idTypeRank(other.idType) > idTypeRank(idType))
+            return if (keepThis) Pair(uasId, idType) else Pair(other.uasId ?: uasId, if (other.uasId != null) other.idType else idType)
+        }
+
+        fun merge(other: Result): Result {
+            val (id, idt) = mergedId(other)
+            return mergeRest(other, id, idt)
+        }
+
+        private fun mergeRest(other: Result, id: String?, idt: Int?): Result = Result(
             msgType = other.msgType ?: this.msgType,
             hasBasicId = other.hasBasicId || this.hasBasicId,
             hasLocation = other.hasLocation || this.hasLocation,
             hasSystem = other.hasSystem || this.hasSystem,
-            uasId = other.uasId ?: this.uasId,
+            uasId = id,
+            idType = idt,
             lat = other.lat ?: this.lat,
             lon = other.lon ?: this.lon,
             altGeo = other.altGeo ?: this.altGeo,
@@ -89,6 +106,14 @@ object OdidParser {
             locRaw = other.locRaw ?: this.locRaw,
             relayFormat = other.relayFormat ?: this.relayFormat,
         )
+    }
+
+    fun idTypeRank(idType: Int?): Int = when (idType) {
+        1 -> 0 // serial number
+        2 -> 1 // CAA / FAA registration
+        3 -> 2 // UTM-assigned UUID
+        4 -> 3 // specific session ID
+        else -> 4
     }
 
     fun parseServiceData(bytes: ByteArray?): Result? {
@@ -120,7 +145,8 @@ object OdidParser {
             sb.append(b.toChar())
         }
         val uasId = if (sb.isNotEmpty()) sb.toString() else null
-        return Result(msgType = msgType, hasBasicId = true, uasId = uasId)
+        val idType = if (msg.size > 1) (msg[1].toInt() ushr 4) and 0x0F else null
+        return Result(msgType = msgType, hasBasicId = true, uasId = uasId, idType = idType)
     }
 
     private fun parseLocation(msg: ByteArray, msgType: Int): Result {
