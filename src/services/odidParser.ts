@@ -13,6 +13,9 @@ export interface OdidDetection {
   hasSystem: boolean;
   msgType?: number; // 0=BasicId, 1=Location, 4=System, 0xF=MessagePack
   uasId?: string;
+  // Basic ID byte 1 high nibble: 1 = serial number (ANSI/CTA-2063-A), 2 = CAA
+  // registration (FAA registration number), 3 = UTM-assigned UUID, 4 = session ID.
+  idType?: number;
   lat?: number;
   lon?: number;
   altGeo?: number;
@@ -99,8 +102,23 @@ function readUInt16LE(buf: Uint8Array, offset: number): number {
   return buf[offset] | (buf[offset+1] << 8);
 }
 
+// Which Basic ID to treat as THE drone's ID when one transmitter sends several
+// (e.g. serial number + FAA registration number): lower wins. Serial number
+// first, because it is what the model lookup and every earlier detection of the
+// same drone key on.
+export function idTypeRank(idType: number | undefined): number {
+  switch (idType) {
+    case 1: return 0; // serial number
+    case 2: return 1; // CAA / FAA registration
+    case 3: return 2; // UTM-assigned UUID
+    case 4: return 3; // specific session ID
+    default: return 4;
+  }
+}
+
 function parseBasicId(msg: Uint8Array): Partial<OdidDetection> {
   const msgType = (msg[0] >> 4) & 0x0F;
+  const idType = (msg[1] >> 4) & 0x0F;
   // Byte 0: msg type, Byte 1: ID type + UA type, Bytes 2-21: 20-byte UAS ID
   const idBytes = msg.slice(2, 22);
   let uasId = '';
@@ -108,7 +126,7 @@ function parseBasicId(msg: Uint8Array): Partial<OdidDetection> {
     if (idBytes[i] === 0) break;
     uasId += String.fromCharCode(idBytes[i]);
   }
-  return { msgType, hasBasicId: true, uasId: uasId || undefined };
+  return { msgType, hasBasicId: true, uasId: uasId || undefined, idType };
 }
 
 function parseLocation(msg: Uint8Array): Partial<OdidDetection> {
@@ -189,7 +207,15 @@ function parsePack(data: Uint8Array): Partial<OdidDetection> {
     const msg = data.slice(offset, offset + 25);
     if (((msg[0] >> 4) & 0x0F) === MSG_SPEC_LOCATION) { spec = msg; continue; }
     const parsed = parseOdidMessage(msg);
-    result = { ...result, ...parsed };
+    // A Pack can carry more than one Basic ID (serial + registration). Keep the
+    // best-ranked one instead of letting the last message win.
+    if (parsed.hasBasicId && result.hasBasicId && result.uasId &&
+        (!parsed.uasId || idTypeRank(parsed.idType) > idTypeRank(result.idType))) {
+      const { uasId: _u, idType: _t, ...rest } = parsed;
+      result = { ...result, ...rest };
+    } else {
+      result = { ...result, ...parsed };
+    }
   }
   // Relay format 2: speed / heading from the drone's own spec message, only
   // when the Pack says so AND a legacy Location was decoded alongside it.

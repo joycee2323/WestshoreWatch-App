@@ -38,9 +38,9 @@ class OdidParserTest {
         return b.array()
     }
 
-    private fun basicId(uasId: String): ByteArray {
+    private fun basicId(uasId: String, idType: Int = 1): ByteArray {
         val m = ByteArray(25)
-        m[0] = 0x02; m[1] = 0x12
+        m[0] = 0x02; m[1] = ((idType shl 4) or 0x02).toByte()
         uasId.forEachIndexed { i, c -> m[2 + i] = c.code.toByte() }
         return m
     }
@@ -128,6 +128,39 @@ class OdidParserTest {
         assertEquals(1, r.status)
         assertEquals(-1.0, r.height!!, 0.0)
         assertEquals(0.5, r.speedVert!!, 0.0)
+    }
+
+    // ── Multiple Basic IDs (Holy Stone module: serial + FAA registration) ──
+    // Same cases as the "Multiple Basic IDs" block in test/odidParser.test.mjs.
+
+    @Test
+    fun basicIdReportsIdType() {
+        assertEquals(1, parse(basicId("1865CBM0200001116", 1)).idType)
+        assertEquals(2, parse(basicId("FA3CF7H9MR", 2)).idType)
+    }
+
+    @Test
+    fun packWithSerialAndRegistrationKeepsSerialInEitherOrder() {
+        val serial = basicId("1865CBM0200001116", 1)
+        val reg = basicId("FA3CF7H9MR", 2)
+        val loc = location()
+        assertEquals("1865CBM0200001116", parse(pack(serial, reg, loc)).uasId)
+        val r = parse(pack(reg, serial, loc))
+        assertEquals("1865CBM0200001116", r.uasId)
+        assertEquals(1, r.idType)
+        assertTrue(r.hasLocation)
+    }
+
+    @Test
+    fun packWithOnlyRegistrationStillIdentifiesTheDrone() {
+        val r = parse(pack(basicId("FA3CF7H9MR", 2), location()))
+        assertEquals("FA3CF7H9MR", r.uasId)
+        assertEquals(2, r.idType)
+    }
+
+    @Test
+    fun packWithTwoSerialTypeIdsLaterOneStillWins() {
+        assertEquals("BBBB", parse(pack(basicId("AAAA", 1), basicId("BBBB", 1), location())).uasId)
     }
 
     // ── Relay format 2: vectors generated from the firmware (test/vectors/README.md).
